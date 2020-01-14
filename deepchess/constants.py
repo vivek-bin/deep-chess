@@ -13,17 +13,54 @@ def LAPSED_TIME():
 	return "{:10.2f} seconds".format((time() - START_TIME)).rjust(60,"-")
 
 class HiddenPrints:
-    def __enter__(self):
-        self._original_stdout = sys.stdout
-        self._original_stderr = sys.stderr
-        sys.stdout = open(os.devnull, 'w')
-        sys.stderr = open(os.devnull, 'w')
+	def __enter__(self):
+		self._original_stdout = sys.stdout
+		self._original_stderr = sys.stderr
+		sys.stdout = open(os.devnull, 'w')
+		sys.stderr = open(os.devnull, 'w')
 
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        sys.stdout.close()
-        sys.stderr.close()
-        sys.stdout = self._original_stdout
-        sys.stderr = self._original_stderr
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		sys.stdout.close()
+		sys.stderr.close()
+		sys.stdout = self._original_stdout
+		sys.stderr = self._original_stderr
+
+# game constants
+WHITE_IDX = 0
+BLACK_IDX = 1
+OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
+
+EMPTY = 0
+PAWN = 1
+BISHOP = 2
+KNIGHT = 3
+ROOK = 4
+QUEEN = 5
+KING = 6
+
+BOARD_SIZE = 8
+
+MOVE_DIRECTIONS = {}
+MOVE_DIRECTIONS[BISHOP] = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int), np.array((-1, -1), dtype=int), np.array((-1, 1), dtype=int)]
+MOVE_DIRECTIONS[ROOK] = [np.array((1, 0), dtype=int), np.array((-1, 0), dtype=int), np.array((0, -1), dtype=int), np.array((0, 1), dtype=int)]
+MOVE_DIRECTIONS[QUEEN] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
+MOVE_DIRECTIONS[KING] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
+
+MOVE_MAX_STEP = {}
+MOVE_MAX_STEP[BISHOP] = BOARD_SIZE - 1
+MOVE_MAX_STEP[ROOK] = BOARD_SIZE - 1
+MOVE_MAX_STEP[QUEEN] = BOARD_SIZE - 1
+MOVE_MAX_STEP[KING] = 1
+
+KNIGHT_MOVES = [np.array((1, 2), dtype=int), np.array((2, 1), dtype=int), np.array((-1, 2), dtype=int), np.array((2, -1), dtype=int), np.array((1, -2), dtype=int), np.array((-2, 1), dtype=int), np.array((-1, -2), dtype=int), np.array((-2, -1), dtype=int)]
+
+KING_ORIGIN = {CONST.WHITE_IDX:np.array((0, 3)), CONST.BLACK_IDX:np.array((7, 4))}
+
+PAWN_CAPTURE_MOVES = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int)]
+PAWN_NORMAL_MOVE = np.array((1, 0), dype=int)
+PAWN_FIRST_MOVE = np.array((2, 0), dype=int)
+PAWN_DIRECTION = {CONST.WHITE_IDX:np.array((1, 1)), CONST.BLACK_IDX:np.array((-1, 1))}
+
 
 
 ###paths
@@ -53,11 +90,9 @@ DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 ###training parameters
 DATA_PARTITIONS = 1000
 TRAIN_SPLIT_PCT = 0.90
-TRAIN_SPLIT = int(TRAIN_SPLIT_PCT * DATA_COUNT)
 BATCH_SIZE = 32
 NUM_EPOCHS = 10
 VALIDATION_SPLIT_PCT = 0.1
-VALIDATION_SPLIT = int(VALIDATION_SPLIT_PCT * TRAIN_SPLIT)
 LEARNING_RATE = 0.0002
 LEARNING_RATE_DECAY = 0.
 SCHEDULER_LEARNING_SCALE = 1.1
