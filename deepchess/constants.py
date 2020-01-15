@@ -44,23 +44,24 @@ MOVE_DIRECTIONS = {}
 MOVE_DIRECTIONS[BISHOP] = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int), np.array((-1, -1), dtype=int), np.array((-1, 1), dtype=int)]
 MOVE_DIRECTIONS[ROOK] = [np.array((1, 0), dtype=int), np.array((-1, 0), dtype=int), np.array((0, -1), dtype=int), np.array((0, 1), dtype=int)]
 MOVE_DIRECTIONS[QUEEN] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
-MOVE_DIRECTIONS[KING] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
-
-MOVE_MAX_STEP = {}
-MOVE_MAX_STEP[BISHOP] = BOARD_SIZE - 1
-MOVE_MAX_STEP[ROOK] = BOARD_SIZE - 1
-MOVE_MAX_STEP[QUEEN] = BOARD_SIZE - 1
-MOVE_MAX_STEP[KING] = 1
 
 KNIGHT_MOVES = [np.array((1, 2), dtype=int), np.array((2, 1), dtype=int), np.array((-1, 2), dtype=int), np.array((2, -1), dtype=int), np.array((1, -2), dtype=int), np.array((-2, 1), dtype=int), np.array((-1, -2), dtype=int), np.array((-2, -1), dtype=int)]
 
-KING_ORIGIN = {CONST.WHITE_IDX:np.array((0, 3)), CONST.BLACK_IDX:np.array((7, 4))}
+KING_MOVES = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
+KING_ORIGIN = {WHITE_IDX:np.array((0, 3)), BLACK_IDX:np.array((BOARD_SIZE - 1, 4))}
+LEFT_CASTLE = 0
+RIGHT_CASTLE = 1
+KING_CASTLE = {WHITE_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}, BLACK_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}}
+for player in [WHITE_IDX, BLACK_IDX]:
+	for i in range(3):
+		KING_CASTLE[player][LEFT_CASTLE].append(KING_ORIGIN[player] - np.array((0, i)))
+		KING_CASTLE[player][RIGHT_CASTLE].append(KING_ORIGIN[player] + np.array((0, i)))
 
 PAWN_CAPTURE_MOVES = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int)]
 PAWN_NORMAL_MOVE = np.array((1, 0), dype=int)
 PAWN_FIRST_MOVE = np.array((2, 0), dype=int)
-PAWN_DIRECTION = {CONST.WHITE_IDX:np.array((1, 1)), CONST.BLACK_IDX:np.array((-1, 1))}
-
+PAWN_DIRECTION = {WHITE_IDX:np.array((1, 1)), BLACK_IDX:np.array((-1, 1))}
+PAWN_LINE = {WHITE_IDX:1, BLACK_IDX:BOARD_SIZE - 2}
 
 
 ###paths
