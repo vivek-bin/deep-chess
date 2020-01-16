@@ -5,7 +5,8 @@ from os.path import isdir
 from time import time, ctime
 import os
 import sys
-from keras import backend as K
+import numpy as np
+#from tensorflow.keras import backend as K
 
 print(ctime().rjust(60,"-"))
 START_TIME = time()
@@ -37,6 +38,7 @@ KNIGHT = 3
 ROOK = 4
 QUEEN = 5
 KING = 6
+PROMOTIONS = [QUEEN, ROOK, KNIGHT, BISHOP]
 
 BOARD_SIZE = 8
 
@@ -58,8 +60,8 @@ for player in [WHITE_IDX, BLACK_IDX]:
 		KING_CASTLE[player][RIGHT_CASTLE].append(KING_ORIGIN[player] + np.array((0, i)))
 
 PAWN_CAPTURE_MOVES = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int)]
-PAWN_NORMAL_MOVE = np.array((1, 0), dype=int)
-PAWN_FIRST_MOVE = np.array((2, 0), dype=int)
+PAWN_NORMAL_MOVE = np.array((1, 0), dtype=int)
+PAWN_FIRST_MOVE = np.array((2, 0), dtype=int)
 PAWN_DIRECTION = {WHITE_IDX:np.array((1, 1)), BLACK_IDX:np.array((-1, 1))}
 PAWN_LINE = {WHITE_IDX:1, BLACK_IDX:BOARD_SIZE - 2}
 
@@ -86,7 +88,7 @@ SCALE_DOWN_MODEL_BY = 1
 #common model params
 MODEL_BASE_UNITS = 512 // SCALE_DOWN_MODEL_BY
 
-DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
+#DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 
 ###training parameters
 DATA_PARTITIONS = 1000
