@@ -27,6 +27,8 @@ class HiddenPrints:
 		sys.stderr = self._original_stderr
 
 # game constants
+BOARD_SIZE = 8
+BOARD_HISTORY = 1
 WHITE_IDX = 0
 BLACK_IDX = 1
 OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
@@ -40,8 +42,6 @@ QUEEN = 5
 KING = 6
 PROMOTIONS = [QUEEN, ROOK, KNIGHT, BISHOP]
 
-BOARD_SIZE = 8
-
 MOVE_DIRECTIONS = {}
 MOVE_DIRECTIONS[BISHOP] = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int), np.array((-1, -1), dtype=int), np.array((-1, 1), dtype=int)]
 MOVE_DIRECTIONS[ROOK] = [np.array((1, 0), dtype=int), np.array((-1, 0), dtype=int), np.array((0, -1), dtype=int), np.array((0, 1), dtype=int)]
@@ -50,20 +50,19 @@ MOVE_DIRECTIONS[QUEEN] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
 KNIGHT_MOVES = [np.array((1, 2), dtype=int), np.array((2, 1), dtype=int), np.array((-1, 2), dtype=int), np.array((2, -1), dtype=int), np.array((1, -2), dtype=int), np.array((-2, 1), dtype=int), np.array((-1, -2), dtype=int), np.array((-2, -1), dtype=int)]
 
 KING_MOVES = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
-KING_ORIGIN = {WHITE_IDX:np.array((0, 3)), BLACK_IDX:np.array((BOARD_SIZE - 1, 4))}
+KING_LINE = {WHITE_IDX:0, BLACK_IDX:BOARD_SIZE - 1}
 LEFT_CASTLE = 0
 RIGHT_CASTLE = 1
-KING_CASTLE = {WHITE_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}, BLACK_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}}
+KING_CASTLE_STEPS = {WHITE_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}, BLACK_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}}
 for player in [WHITE_IDX, BLACK_IDX]:
 	for i in range(3):
-		KING_CASTLE[player][LEFT_CASTLE].append(KING_ORIGIN[player] - np.array((0, i)))
-		KING_CASTLE[player][RIGHT_CASTLE].append(KING_ORIGIN[player] + np.array((0, i)))
+		KING_CASTLE_STEPS[player][LEFT_CASTLE].append(np.array((KING_LINE[player], BOARD_SIZE//2 - i), dtype=int))
+		KING_CASTLE_STEPS[player][RIGHT_CASTLE].append(np.array((KING_LINE[player], BOARD_SIZE//2 + i), dtype=int))
 
 PAWN_CAPTURE_MOVES = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int)]
 PAWN_NORMAL_MOVE = np.array((1, 0), dtype=int)
 PAWN_FIRST_MOVE = np.array((2, 0), dtype=int)
-PAWN_DIRECTION = {WHITE_IDX:np.array((1, 1)), BLACK_IDX:np.array((-1, 1))}
-PAWN_LINE = {WHITE_IDX:1, BLACK_IDX:BOARD_SIZE - 2}
+PAWN_DIRECTION = {WHITE_IDX:np.array((1, 1), dtype=int), BLACK_IDX:np.array((-1, 1), dtype=int)}
 
 
 ###paths
