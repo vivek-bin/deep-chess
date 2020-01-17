@@ -25,7 +25,6 @@ def initializeBoard():
 
 	states["EN_PASSANT"] = {CONST.WHITE_IDX:[False]*CONST.BOARD_SIZE, CONST.BLACK_IDX:[False]*CONST.BOARD_SIZE}
 
-	states["COMPLETE"] = False
 	states["WINNER"] = False
 
 	return board, states
@@ -33,37 +32,31 @@ def initializeBoard():
 def allMoves(board, states, player, onlyFetchAttackSquares=False):
 	assert player in (CONST.WHITE_IDX, CONST.BLACK_IDX)
 
-	moves = []
 	for i in range(CONST.BOARD_SIZE):
 		for j in range(CONST.BOARD_SIZE):
-			moves.extend(positionAllMoves(board, np.array((i, j), dtype=int), states, player, onlyFetchAttackSquares=onlyFetchAttackSquares))
+			yield from positionAllMoves(board, np.array((i, j), dtype=int), states, player, onlyFetchAttackSquares=onlyFetchAttackSquares)
 	
-	return moves
 
 def attackedSquares(board, states, player):
-	positions = allMoves(board, states, CONST.OPPONENT[player], onlyFetchAttackSquares=True)
-	positions = [p for _, p in positions]
-
-	return positions
+	for _, p in allMoves(board, states, CONST.OPPONENT[player], onlyFetchAttackSquares=True):
+		yield p
 
 def positionAllMoves(board, position, states, player, onlyFetchAttackSquares=False):
 	box = board[player, position[0], position[1]]
-	moves = []
 
 	if box == CONST.EMPTY:
-		return moves
+		pass
 
-	if box in CONST.MOVE_DIRECTIONS.keys():
+	elif box in CONST.MOVE_DIRECTIONS.keys():
 		for direction in CONST.MOVE_DIRECTIONS[box]:
-			moves.extend(clipSlideMoves(board, position, direction, CONST.BOARD_SIZE - 1, player))
+			yield from clipSlideMoves(board, position, direction, CONST.BOARD_SIZE - 1, player)
 		
-		return moves
 	
-	if box == CONST.KING:
+	elif box == CONST.KING:
 		for movement in CONST.KING_MOVES:
 			newPosition, _ = positionCheck(board, position, movement, player)
 			if type(newPosition) == np.ndarray:
-				moves.append((position, newPosition))
+				yield (position, newPosition)
 		
 		if not onlyFetchAttackSquares:								# castling not an attack move
 			# castling available => king and rook not moved
@@ -73,58 +66,55 @@ def positionAllMoves(board, position, states, player, onlyFetchAttackSquares=Fal
 						# check if king or his movement under attack
 						blockedSquares = attackedSquares(board, states, player)
 						if not [True for p in blockedSquares for cp in CONST.KING_CASTLE_STEPS[player][side] if p[0]==cp[0] and p[1]==cp[1]]:
-							moves.append((position, CONST.KING_CASTLE_STEPS[player][side][0]))
+							yield (position, CONST.KING_CASTLE_STEPS[player][side][0])
 
-		return moves
 
-	if box == CONST.KNIGHT:
+	elif box == CONST.KNIGHT:
 		for movement in CONST.KNIGHT_MOVES:
 			newPosition, _ = positionCheck(board, position, movement, player)
 			if type(newPosition) == np.ndarray:
-				moves.append((position, newPosition))
+				yield (position, newPosition)
 
-		return moves
 
-	if box == CONST.PAWN:
+	elif box == CONST.PAWN:
 		for movement in CONST.PAWN_CAPTURE_MOVES:
 			movement = movement * CONST.PAWN_DIRECTION[player]
 			newPosition, capture = positionCheck(board, position, movement, player)
 			if type(newPosition) == np.ndarray:
 				if capture:
 					if not onlyFetchAttackSquares and (newPosition[0] == CONST.KING_LINE[CONST.OPPONENT[player]]):		# reach opponents king line
-						moves.append((position, np.append(newPosition, CONST.ROOK)))
-						moves.append((position, np.append(newPosition, CONST.BISHOP)))
-						moves.append((position, np.append(newPosition, CONST.KNIGHT)))
-						moves.append((position, np.append(newPosition, CONST.QUEEN)))
+						yield (position, np.append(newPosition, CONST.ROOK))
+						yield (position, np.append(newPosition, CONST.BISHOP))
+						yield (position, np.append(newPosition, CONST.KNIGHT))
+						yield (position, np.append(newPosition, CONST.QUEEN))
 					else:
-						moves.append((position, newPosition))
+						yield (position, newPosition)
 				else:
 					if states["EN_PASSANT"][CONST.OPPONENT[player]][newPosition[1]]:
 						if (CONST.KING_LINE[CONST.OPPONENT[player]] + ((1+2) * CONST.PAWN_DIRECTION[CONST.OPPONENT[player]][0])) == position[0]:
 							if board[CONST.OPPONENT[player], position[0], newPosition[1]] == CONST.PAWN:
-								moves.append((position, newPosition))
+								yield (position, newPosition)
 
 		if not onlyFetchAttackSquares:
 			movement = CONST.PAWN_NORMAL_MOVE * CONST.PAWN_DIRECTION[player]
 			newPosition, capture = positionCheck(board, position, movement, player)
 			if (not capture) and type(newPosition) == np.ndarray:
 				if newPosition[0] == CONST.KING_LINE[CONST.OPPONENT[player]]:		# reach opponents king line
-					moves.append((position, np.append(newPosition, CONST.ROOK)))
-					moves.append((position, np.append(newPosition, CONST.BISHOP)))
-					moves.append((position, np.append(newPosition, CONST.KNIGHT)))
-					moves.append((position, np.append(newPosition, CONST.QUEEN)))
+					yield (position, np.append(newPosition, CONST.ROOK))
+					yield (position, np.append(newPosition, CONST.BISHOP))
+					yield (position, np.append(newPosition, CONST.KNIGHT))
+					yield (position, np.append(newPosition, CONST.QUEEN))
 				else:
-					moves.append((position, newPosition))
+					yield (position, newPosition)
 				
 					if position[0] == (CONST.KING_LINE[player] + CONST.PAWN_DIRECTION[player][0]):		#check if pawn's first move
 						movement = CONST.PAWN_FIRST_MOVE * CONST.PAWN_DIRECTION[player]
 						newPosition, capture = positionCheck(board, position, movement, player)
 						if (not capture) and type(newPosition) == np.ndarray:
-							moves.append((position, newPosition))
+							yield (position, newPosition)
+	else:
+		raise Exception
 
-		return moves
-
-	raise Exception
 
 def updateBoard(board, move, states, player):
 	newBoard = np.copy(board)
@@ -277,38 +267,40 @@ def play():
 
 	count = 0
 	player = CONST.WHITE_IDX
-	while(not states["COMPLETE"] and count < 100):
+	nonKingPieceCount = (board!=CONST.EMPTY).sum() - (board==CONST.KING).sum()
+	while(count < 1000 and nonKingPieceCount):
 		filteredMoves = []
 		for move in allMoves(board, states, player):		# remove moves which allow opponent to capture king in next move
 			tempBoard, tempStates = updateBoard(board, move, states, player)
-			blockedSquares = attackedSquares(tempBoard, tempStates, player)
 			kingPos = piecePositions(tempBoard, player, CONST.KING)[0]
-			underCheck = bool([True for p in blockedSquares if kingPos[0]==p[0] and kingPos[1]==p[1]])		#still under check
-			if not underCheck:
+			for p in attackedSquares(tempBoard, tempStates, player):
+				if kingPos[0]==p[0] and kingPos[1]==p[1]:
+					break
+			else:
 				filteredMoves.append(move)
-		moves = filteredMoves
 
-		if not moves:
-			states["COMPLETE"] = True
-			blockedSquares = attackedSquares(board, states, player)
+		if not filteredMoves:
 			kingPos = piecePositions(board, player, CONST.KING)[0]
-			check = bool([True for p in blockedSquares if kingPos[0]==p[0] and kingPos[1]==p[1]])		#under check
-			if check:
-				states["WINNER"] = CONST.OPPONENT[player]
-			continue
+			for p in attackedSquares(board, states, player):
+				if kingPos[0]==p[0] and kingPos[1]==p[1]:
+					states["WINNER"] = str(CONST.OPPONENT[player])
+					break
+			break
 
-		selectedMove = moves[int(random.random()*len(moves))]
+		selectedMove = filteredMoves[int(random.random()*len(filteredMoves))]
 		board, states = updateBoard(board, selectedMove, states, player)
 		count = count + 1
 
 		player = CONST.OPPONENT[player]
+		nonKingPieceCount = (board!=CONST.EMPTY).sum() - (board==CONST.KING).sum()
 
 	if states["WINNER"]:
-		print("winner : " + str(states["WINNER"]))
+		print("winner : " + states["WINNER"])
 	else:
-		print("draw")
+		if nonKingPieceCount:
+			print("draw, moves exceeded")
+		else:
+			print("draw, only kings")
 
 if __name__ == "__main__":
-	for _ in range(10):
-		play()
-	print(CONST.LAPSED_TIME())
+	play()

@@ -36,7 +36,7 @@ def main():
 		trainModel(modelNum=modelNum)
 
 	if playFlag:
-		for _ in range(10):
+		for _ in range(100):
 			engine.play()
 			print(CONST.LAPSED_TIME())
 
