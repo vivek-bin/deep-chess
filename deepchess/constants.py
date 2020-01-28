@@ -6,7 +6,8 @@ from time import time, ctime
 import os
 import sys
 import numpy as np
-#from tensorflow.keras import backend as K
+import tensorflow as tf
+from tf.keras import backend as K
 
 print(ctime().rjust(60,"-"))
 START_TIME = time()
@@ -82,10 +83,8 @@ LOGS = PATH + "logs/"
 
 
 ###model parameters
-SCALE_DOWN_MODEL_BY = 1
-
-#common model params
-MODEL_BASE_UNITS = 512 // SCALE_DOWN_MODEL_BY
+EMBEDDING_SIZE = 8
+MODEL_DEPTH = 20
 
 #DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 
