@@ -6,8 +6,8 @@ from time import time, ctime
 import os
 import sys
 import numpy as np
-import tensorflow as tf
-from tf.keras import backend as K
+#import tensorflow as tf
+#from tf.keras import backend as K
 
 print(ctime().rjust(60,"-"))
 START_TIME = time()
@@ -29,10 +29,11 @@ class HiddenPrints:
 
 # game constants
 BOARD_SIZE = 8
-BOARD_HISTORY = 1
+MAX_MOVES = 300
 WHITE_IDX = 0
 BLACK_IDX = 1
 OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
+SCORING = {BLACK_IDX:-1, WHITE_IDX:1}
 
 EMPTY = 0
 PAWN = 1
@@ -44,11 +45,11 @@ KING = 6
 PROMOTIONS = [QUEEN, ROOK, KNIGHT, BISHOP]
 
 MOVE_DIRECTIONS = {}
-MOVE_DIRECTIONS[BISHOP] = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int), np.array((-1, -1), dtype=int), np.array((-1, 1), dtype=int)]
-MOVE_DIRECTIONS[ROOK] = [np.array((1, 0), dtype=int), np.array((-1, 0), dtype=int), np.array((0, -1), dtype=int), np.array((0, 1), dtype=int)]
+MOVE_DIRECTIONS[BISHOP] = [np.array((1, 1), dtype=np.int8), np.array((1, -1), dtype=np.int8), np.array((-1, -1), dtype=np.int8), np.array((-1, 1), dtype=np.int8)]
+MOVE_DIRECTIONS[ROOK] = [np.array((1, 0), dtype=np.int8), np.array((-1, 0), dtype=np.int8), np.array((0, -1), dtype=np.int8), np.array((0, 1), dtype=np.int8)]
 MOVE_DIRECTIONS[QUEEN] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
 
-KNIGHT_MOVES = [np.array((1, 2), dtype=int), np.array((2, 1), dtype=int), np.array((-1, 2), dtype=int), np.array((2, -1), dtype=int), np.array((1, -2), dtype=int), np.array((-2, 1), dtype=int), np.array((-1, -2), dtype=int), np.array((-2, -1), dtype=int)]
+KNIGHT_MOVES = [np.array((1, 2), dtype=np.int8), np.array((2, 1), dtype=np.int8), np.array((-1, 2), dtype=np.int8), np.array((2, -1), dtype=np.int8), np.array((1, -2), dtype=np.int8), np.array((-2, 1), dtype=np.int8), np.array((-1, -2), dtype=np.int8), np.array((-2, -1), dtype=np.int8)]
 
 KING_MOVES = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
 KING_LINE = {WHITE_IDX:0, BLACK_IDX:BOARD_SIZE - 1}
@@ -57,14 +58,15 @@ RIGHT_CASTLE = 1
 KING_CASTLE_STEPS = {WHITE_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}, BLACK_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}}
 for player in [WHITE_IDX, BLACK_IDX]:
 	for i in range(3):
-		KING_CASTLE_STEPS[player][LEFT_CASTLE].append(np.array((KING_LINE[player], BOARD_SIZE//2 - i), dtype=int))
-		KING_CASTLE_STEPS[player][RIGHT_CASTLE].append(np.array((KING_LINE[player], BOARD_SIZE//2 + i), dtype=int))
+		KING_CASTLE_STEPS[player][LEFT_CASTLE].append(np.array((KING_LINE[player], BOARD_SIZE//2 - i), dtype=np.int8))
+		KING_CASTLE_STEPS[player][RIGHT_CASTLE].append(np.array((KING_LINE[player], BOARD_SIZE//2 + i), dtype=np.int8))
 
-PAWN_CAPTURE_MOVES = [np.array((1, 1), dtype=int), np.array((1, -1), dtype=int)]
-PAWN_NORMAL_MOVE = np.array((1, 0), dtype=int)
-PAWN_FIRST_MOVE = np.array((2, 0), dtype=int)
-PAWN_DIRECTION = {WHITE_IDX:np.array((1, 1), dtype=int), BLACK_IDX:np.array((-1, 1), dtype=int)}
+PAWN_CAPTURE_MOVES = [np.array((1, 1), dtype=np.int8), np.array((1, -1), dtype=np.int8)]
+PAWN_NORMAL_MOVE = np.array((1, 0), dtype=np.int8)
+PAWN_FIRST_MOVE = np.array((2, 0), dtype=np.int8)
+PAWN_DIRECTION = {WHITE_IDX:np.array((1, 1), dtype=np.int8), BLACK_IDX:np.array((-1, 1), dtype=np.int8)}
 
+MAX_POSSIBLE_MOVES = BOARD_SIZE**4 + 1 + len(PROMOTIONS) * BOARD_SIZE**2
 
 ###paths
 GOOGLE_DRIVE_PATH = "/content/drive/My Drive/"
@@ -85,6 +87,8 @@ LOGS = PATH + "logs/"
 ###model parameters
 EMBEDDING_SIZE = 8
 MODEL_DEPTH = 20
+BOARD_HISTORY = 1
+SCORE_DECAY = 0.9
 
 #DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 

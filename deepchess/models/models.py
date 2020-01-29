@@ -17,20 +17,24 @@ def getModelUnit(inputTensor, size=3, filters=32):
 
     return x
 
-def getModel():
+def resNetChessModel():
+    inputBoard = layers.Input(batch_shape=(None, None, CONST.BOARD_SIZE, CONST.BOARD_SIZE))
+    inputState = layers.Input(batch_shape=(None, None, CONST.BOARD_SIZE, CONST.BOARD_SIZE))
 
-    inputTensor = layers.Input(batch_shape=(None, 2, CONST.BOARD_SIZE, CONST.BOARD_SIZE))
+    flatBoard = layers.Reshape(target_shape=(-1, ))(inputBoard)
+    embeddedBoard = layers.Embedding(input_dim=7, output_dim=CONST.EMBEDDING_SIZE)(flatBoard)
+    reformBoard = layers.Reshape(target_shape=(-1, CONST.BOARD_SIZE, CONST.BOARD_SIZE, CONST.EMBEDDING_SIZE))(embeddedBoard)
+    reformBoard = layers.Permute((1, 4))(reformBoard)
+    reformBoard = layers.Reshape(target_shape=(-1, CONST.BOARD_SIZE, CONST.BOARD_SIZE))(reformBoard)
 
-    flatTensor = layers.Reshape(target_shape=(-1, ))
-    embedded = layers.Embedding(input_dim=7, output_dim=CONST.EMBEDDING_SIZE)(flatTensor)
-    reformTensor = layers.Reshape(target_shape=(-1, 2, CONST.BOARD_SIZE, CONST.BOARD_SIZE, CONST.EMBEDDING_SIZE))
-
-    x = reformTensor
-    for _ in range(0, CONST.MODEL_DEPTH, 2):
+    x = layers.Concatenate()([reformBoard, inputState])
+    for _ in range(CONST.MODEL_DEPTH//2):
         x = getModelUnit(x)
 
-    outputTensor = layers.Dense(1)(x)
-    model = tf.keras.Model(inputs=[inputTensor], outputs=[outputTensor])
+    boardValue = layers.Dense(1)(x)
+    moveProbabilities = layers.Dense(CONST.MAX_POSSIBLE_MOVES, activation="softmax")(x)
+
+    model = tf.keras.Model(inputs=[inputBoard, inputState], outputs=[boardValue, moveProbabilities])
 
     return model
 

@@ -1,131 +1,65 @@
 import numpy as np
 from keras.models import load_model
-from keras.models import Model
-from keras import layers
 from keras.optimizers import Adam
 import json
 import keras.backend as K
 from keras.callbacks import ModelCheckpoint, TensorBoard, LearningRateScheduler
 import os
-from keras.utils import Sequence
 import time
 import h5py
 
 from . import constants as CONST
-from . import preparedata as PD
+from . import engine as EG
 from .models.models import *
 from .processing import fileaccess as FA
 
-class DataPartitioningSequence(Sequence):
-	def __init__(self, x, y, batchSize, numPartitions, initialEpoch=0):
-		self.x = x
-		self.y = y
-		self.epoch = initialEpoch
-		self.batchSize = batchSize
-		self.numPartitions = numPartitions
-		self.partitionSize = int(np.ceil(len(self.x[0])/self.numPartitions))
-		self.partitionOffset = self.partitionSize * ((self.epoch-1) % self.numPartitions)
+def prepareModelInput(gameHistory):
+	score = EG.finalScore(gameHistory)
+	allInput = []
 
-	def __len__(self):
-		currentPartitionSize = min(self.partitionSize, len(self.x[0]) - self.partitionOffset)
-		return int(np.ceil(currentPartitionSize / self.batchSize))
+	for i in range(len(gameHistory) - 1):
+		boardInput = np.ones((CONST.BOARD_HISTORY, 2, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * CONST.EMPTY
+		for j in range(CONST.BOARD_HISTORY):
+			if i >= j:
+				boardInput[j] = gameHistory[i-j][0]
+		boardInput = boardInput.reshape((-1, CONST.BOARD_SIZE, CONST.BOARD_SIZE))
 
-	def __getitem__(self, idx):
-		batchIdx = self.partitionOffset + idx * self.batchSize
-		xBatch = [a[batchIdx:batchIdx + self.batchSize] for a in self.x]
-		yBatch = [a[batchIdx:batchIdx + self.batchSize] for a in self.y]
+		states = gameHistory[i][1]
+		
+		playerInput = np.ones((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * states["PLAYER"]
+		
+		castlingStateInput = np.zeros((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8)
+		for player in [CONST.WHITE_IDX, CONST.BLACK_IDX]:
+			if states["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE]:
+				for i in range(0, CONST.BOARD_SIZE//2):
+					castlingStateInput[0, CONST.KING_LINE[player], i] = 1
+			if states["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE]:
+				for i in range(CONST.BOARD_SIZE//2 + 1, CONST.BOARD_SIZE):
+					castlingStateInput[0, CONST.KING_LINE[player], i] = 1
+		
+		enPassantStateInput = np.zeros((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8)
+		for player in [CONST.WHITE_IDX, CONST.BLACK_IDX]:
+			if states["EN_PASSANT"][player] >= 0:
+				movement = CONST.PAWN_DIRECTION[player] * CONST.PAWN_NORMAL_MOVE
+				pawnPos = np.array((CONST.KING_LINE[player], states["EN_PASSANT"][player]), dtype=np.int8)
+				for _ in range(3):
+					pawnPos = pawnPos + movement
+					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
+					pawnPos = pawnPos + movement
+					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
+					pawnPos = pawnPos + movement
+					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
+		statesInput = np.concatenate([playerInput, castlingStateInput, enPassantStateInput])
 
-		return xBatch, yBatch
 
-	def on_epoch_end(self):
-		self.epoch += 1
-		self.partitionOffset = self.partitionSize * ((self.epoch-1) % self.numPartitions)
+		moveScore = score * (CONST.SCORE_DECAY ** (len(gameHistory) - i - 1))
+		moveIndex = EG.moveIndex(gameHistory[i][2])
 
-		currentPartitionSize = min(self.partitionSize, len(self.x[0]) - self.partitionOffset)
-		print("Training on data from {0} to {1}".format(self.partitionOffset, self.partitionOffset + currentPartitionSize))
-
-class DataPartitionLoadingSequence(Sequence):
-	def __init__(self, startLang, endLang, batchSize, numPartitions, training=False, validation=False, testing=False, initialEpoch=0):
-		'''
-			training flag -> training data generator
-			validation flag -> validation data generator
-			testing flag -> testing data generator
-			**if multiple flags from these are set, the first True from the above order is considered**
-		'''
-		assert type(training) == bool
-		assert type(validation) == bool
-		assert type(testing) == bool
-		assert training or validation or testing
-
-		self.startLang = startLang
-		self.endLang = endLang
-		self.epoch = initialEpoch
-		self.batchSize = batchSize
-		self.numPartitions = numPartitions
-		self.partitionSize = int(np.ceil(FA.lenProcessedData(startLang)/self.numPartitions))
-
-		if training:
-			start = 0
-			end = CONST.TRAIN_SPLIT_PCT * (1 - CONST.VALIDATION_SPLIT_PCT)
-		elif validation:
-			start = CONST.TRAIN_SPLIT_PCT * (1 - CONST.VALIDATION_SPLIT_PCT)
-			end = CONST.TRAIN_SPLIT_PCT
-		elif testing:
-			start = CONST.TRAIN_SPLIT_PCT
-			end = 1
-		self.dataPartStart = int(start * self.partitionSize)
-		self.dataPartEnd = int(end * self.partitionSize)
-
-		self.startLangText = []
-		self.endLangText = []
-		self.loadData()
-
-	def __len__(self):
-		assert len(self.endLangText) == len(self.startLangText)
-		assert len(self.endLangText) > 0
-
-		return int(np.ceil(len(self.endLangText) / self.batchSize))
-
-	def __getitem__(self, idx):
-		assert len(self.endLangText) == len(self.startLangText)
-		assert len(self.endLangText) > 0
-
-		startLangBatchText = self.startLangText[idx * self.batchSize:idx * self.batchSize + self.batchSize]
-		endLangBatchText = self.endLangText[idx * self.batchSize:idx * self.batchSize + self.batchSize]
-
-		startLangEncoded = []
-		startLangEncoded.append(PD.encodeWords(startLangBatchText, self.startLang))
-		if CONST.INCLUDE_CHAR_EMBEDDING:
-			startLangEncoded.append(PD.encodeCharsForward(startLangBatchText, self.startLang))
-			startLangEncoded.append(PD.encodeCharsBackward(startLangBatchText, self.startLang))
-
-		endLangEncoded = []
-		endLangEncoded.append(PD.encodeWords(endLangBatchText, self.endLang))
-		if CONST.INCLUDE_CHAR_EMBEDDING:
-			endLangEncoded.append(PD.encodeCharsForward(endLangBatchText, self.endLang))
-			endLangEncoded.append(PD.encodeCharsBackward(endLangBatchText, self.endLang))
-
-		xBatch = startLangEncoded + endLangEncoded
-		yBatch = endLangEncoded[0]
-		yBatch = np.pad(yBatch,((0,0),(0,1)), mode='constant')[:,1:]
-		yBatch = [np.expand_dims(yBatch,axis=-1)]
-
-		return xBatch, yBatch
-
-	def on_epoch_end(self):
-		self.epoch += 1
-		self.loadData()
-
-	def loadData(self):
-		# load next data partition
-		partitionOffset = self.partitionSize * ((self.epoch-1) % self.numPartitions)
-
-		self.startLangText = FA.readProcessedData(self.startLang, partitionOffset + self.dataPartStart, partitionOffset + self.dataPartEnd)
-		self.endLangText = FA.readProcessedData(self.endLang, partitionOffset + self.dataPartStart, partitionOffset + self.dataPartEnd)
-		data = list(zip(self.startLangText, self.endLangText))
-		data.sort(key=lambda x:len(x[1]))
-		self.startLangText = [ls for ls, le in data]
-		self.endLangText = [le for ls, le in data]
+		x = (boardInput, statesInput)
+		y = (moveScore, moveIndex)
+		allInput.append(x, y)
+	
+	return allInput
 
 
 def sparseCrossEntropyLoss(targets=None, outputs=None):
@@ -136,20 +70,11 @@ def sparseCrossEntropyLoss(targets=None, outputs=None):
 	secondPositionShifter = K.repeat(K.expand_dims(K.arange(batchSize) * sequenceSize * vocabularySize, 1), sequenceSize)
 
 	shiftedtargets = K.cast(K.flatten(targets), "int32") + K.flatten(firstPositionShifter) + K.flatten(secondPositionShifter)
-	if CONST.LABEL_SMOOTHENING:
-		outputs = K.clip(outputs, K.epsilon(), 1. - K.epsilon())
-		outputs = -K.log(outputs)
-		relevantValues = K.gather(K.flatten(outputs), shiftedtargets)
-		relevantValues = K.reshape(relevantValues, (batchSize, -1))
-		otherValues = K.sum(outputs, axis=-1) - relevantValues
-		trueValue = (1. * CONST.LABEL_SMOOTHENING) + ((1.-CONST.LABEL_SMOOTHENING)/K.cast(vocabularySize,dtype="float32"))
-		falseValue = (0. * CONST.LABEL_SMOOTHENING) + ((1.-CONST.LABEL_SMOOTHENING)/K.cast(vocabularySize,dtype="float32"))
-		cost = relevantValues*trueValue + otherValues*falseValue
-	else:
-		relevantValues = K.gather(K.flatten(outputs), shiftedtargets)
-		relevantValues = K.reshape(relevantValues, (batchSize, -1))
-		relevantValues = K.clip(relevantValues, K.epsilon(), 1. - K.epsilon())
-		cost = -K.log(relevantValues)
+
+	relevantValues = K.gather(K.flatten(outputs), shiftedtargets)
+	relevantValues = K.reshape(relevantValues, (batchSize, -1))
+	relevantValues = K.clip(relevantValues, K.epsilon(), 1. - K.epsilon())
+	cost = -K.log(relevantValues)
 	return cost
 
 def lrScheduler(epoch):
@@ -162,18 +87,6 @@ def lrScheduler(epoch):
 	print("Learning rate =", lr)
 	return np.clip(lr, CONST.SCHEDULER_LEARNING_RATE_MIN, CONST.SCHEDULER_LEARNING_RATE)
 
-def saveModels(trainingModel, modelName, samplingModels=False):
-	# serialize model to JSON
-	with open(CONST.MODELS + modelName + "_train.json", "w") as json_file:
-		json_file.write(trainingModel.to_json())
-	if samplingModels:
-		with open(CONST.MODELS + modelName + "_sampInit.json", "w") as json_file:
-			json_file.write(samplingModels[0].to_json())
-		with open(CONST.MODELS + modelName + "_sampNext.json", "w") as json_file:
-			json_file.write(samplingModels[1].to_json())
-	
-	print("Saved model structure")
-	
 def evaluateModel(model, xTest, yTest):
 	scores = model.evaluate(xTest, yTest, verbose=0)
 	print("%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
@@ -195,12 +108,9 @@ def getLastEpoch(modelName):
 	
 	return 0
 
-def loadModel(modelNum, loadForTraining=True):
+def loadModel(loadForTraining=True):
 	#get model
-	if modelNum == 1:
-		trainingModel, samplingModels = translationLSTMAttModel()
-	else:
-		trainingModel, samplingModels = translationTransformerModel()
+	trainingModel = resNetChessModel()
 	if loadForTraining:
 		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY/CONST.DATA_PARTITIONS), loss=sparseCrossEntropyLoss, metrics=[CONST.EVALUATION_METRIC])
 		trainingModel.summary()
@@ -218,17 +128,13 @@ def loadModel(modelNum, loadForTraining=True):
 			trainingModel._make_train_function()
 			trainingModel.optimizer.set_weights(optimizerWeightValues)
 
+	return trainingModel
 
-	return trainingModel, samplingModels
-
-def trainModel(modelNum):
+def trainModel():
 	# get model
-	trainingModel, _ = loadModel(modelNum)
+	trainingModel, _ = loadModel()
 	initialEpoch = getLastEpoch(trainingModel.name)
 
-	# prepare data generators
-	trainingDataGenerator = DataPartitionLoadingSequence(training=True, batchSize=CONST.BATCH_SIZE, numPartitions=CONST.DATA_PARTITIONS, initialEpoch=initialEpoch)
-	
 	# prepare callbacks
 	callbacks = []
 	callbacks.append(ModelCheckpoint(CONST.MODELS + trainingModel.name + CONST.MODEL_CHECKPOINT_NAME_SUFFIX, monitor=CONST.EVALUATION_METRIC, mode='max', save_best_only=True, period=CONST.CHECKPOINT_PERIOD))
@@ -237,22 +143,15 @@ def trainModel(modelNum):
 	if CONST.USE_TENSORBOARD:
 		callbacks.append(TensorBoard(log_dir=CONST.LOGS + "tensorboard-log", histogram_freq=1, batch_size=CONST.BATCH_SIZE, write_graph=False, write_grads=True, write_images=False))
 
-		# temporary data gen to get 1st partition validation data as a whole(batch size=partition size)
-		validationData = DataPartitionLoadingSequence(validation=True, batchSize=trainingDataGenerator.partitionSize, numPartitions=CONST.DATA_PARTITIONS, initialEpoch=1)
-		validationData = validationData[0]
-	else:
-		# partitioned validation data, like training data
-		validationData = DataPartitionLoadingSequence(validation=True, batchSize=CONST.BATCH_SIZE, numPartitions=CONST.DATA_PARTITIONS, initialEpoch=initialEpoch)
-
 	# start training
-	_ = trainingModel.fit_generator(trainingDataGenerator, validation_data=validationData, epochs=CONST.NUM_EPOCHS*CONST.DATA_PARTITIONS, callbacks=callbacks, initial_epoch=initialEpoch)
+	_ = trainingModel.fit_generator([], epochs=CONST.NUM_EPOCHS*CONST.DATA_PARTITIONS, callbacks=callbacks, initial_epoch=initialEpoch)
 
 	# save model after training
 	trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_TRAINED_NAME_SUFFIX)
 
 
 def main():
-	trainModel(1)
+	trainModel()
 
 if __name__ == "__main__":
 	main()

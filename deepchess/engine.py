@@ -5,7 +5,7 @@ import random
 from . import constants as CONST
 
 def initializeBoard():
-	board = np.ones((2, CONST.BOARD_SIZE, CONST.BOARD_SIZE)) * CONST.EMPTY
+	board = np.ones((2, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * CONST.EMPTY
 	for player in [CONST.WHITE_IDX, CONST.BLACK_IDX]:
 		for i, piece in enumerate([CONST.ROOK, CONST.KNIGHT, CONST.BISHOP, CONST.QUEEN, CONST.KING, CONST.BISHOP, CONST.KNIGHT, CONST.ROOK]):
 			board[player, CONST.KING_LINE[player], i] = piece
@@ -15,31 +15,43 @@ def initializeBoard():
 			board[player, pawnLine, i] = CONST.PAWN
 	
 	states = {}
-	states["CASTLING_AVAILABLE"] = {CONST.WHITE_IDX:{CONST.LEFT_CASTLE:False, CONST.RIGHT_CASTLE:False}, CONST.BLACK_IDX:{CONST.LEFT_CASTLE:False, CONST.RIGHT_CASTLE:False}}
+	states["CASTLING_AVAILABLE"] = {CONST.WHITE_IDX:{CONST.LEFT_CASTLE:0, CONST.RIGHT_CASTLE:0}, CONST.BLACK_IDX:{CONST.LEFT_CASTLE:0, CONST.RIGHT_CASTLE:0}}
 	for player in [CONST.WHITE_IDX, CONST.BLACK_IDX]:
 		if board[player, CONST.KING_LINE[player], CONST.BOARD_SIZE//2] == CONST.KING:
 			if board[player, CONST.KING_LINE[player], 0] == CONST.ROOK:
-				states["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE] = True
+				states["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE] = 1
 			if board[player, CONST.KING_LINE[player], CONST.BOARD_SIZE - 1] == CONST.ROOK:
-				states["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = True
+				states["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = 1
 
-	states["EN_PASSANT"] = {CONST.WHITE_IDX:[False]*CONST.BOARD_SIZE, CONST.BLACK_IDX:[False]*CONST.BOARD_SIZE}
-
-	states["WINNER"] = False
+	states["EN_PASSANT"] = {CONST.WHITE_IDX:-1, CONST.BLACK_IDX:-1}
+	states["NUM_MOVES"] = 0
+	states["PLAYER"] = CONST.WHITE_IDX
 
 	return board, states
 
-def allMoves(board, states, player, onlyFetchAttackSquares=False):
-	assert player in (CONST.WHITE_IDX, CONST.BLACK_IDX)
+def allMoves(board, states):
+	player = states["PLAYER"]
+	moves = []
 
 	for i in range(CONST.BOARD_SIZE):
 		for j in range(CONST.BOARD_SIZE):
-			yield from positionAllMoves(board, np.array((i, j), dtype=int), states, player, onlyFetchAttackSquares=onlyFetchAttackSquares)
+			for move in positionAllMoves(board, np.array((i, j), dtype=np.int8), states, player):
+				tempBoard, tempStates = updateBoard(board, move, states)
+				kingPos = piecePositions(tempBoard, player, CONST.KING)[0]
+				for pos in attackedSquares(tempBoard, tempStates):				# remove moves which allow opponent to capture king in next move
+					if kingPos[0]==pos[0] and kingPos[1]==pos[1]:
+						break
+				else:
+					moves.append(move)
 	
+	return moves
 
-def attackedSquares(board, states, player):
-	for _, p in allMoves(board, states, CONST.OPPONENT[player], onlyFetchAttackSquares=True):
-		yield p
+def attackedSquares(board, states):
+	player = states["PLAYER"]
+	for i in range(CONST.BOARD_SIZE):
+		for j in range(CONST.BOARD_SIZE):
+			for _, p in positionAllMoves(board, np.array((i, j), dtype=np.int8), states, CONST.OPPONENT[player], onlyFetchAttackSquares=True):
+				yield p
 
 def positionAllMoves(board, position, states, player, onlyFetchAttackSquares=False):
 	box = board[player, position[0], position[1]]
@@ -64,7 +76,7 @@ def positionAllMoves(board, position, states, player, onlyFetchAttackSquares=Fal
 				if states["CASTLING_AVAILABLE"][player][side]:
 					if not [True for p in CONST.KING_CASTLE_STEPS[player][side] if board[player, p[0], p[1]] != CONST.EMPTY or board[CONST.OPPONENT[player], p[0], p[1]] != CONST.EMPTY]:
 						# check if king or his movement under attack
-						blockedSquares = attackedSquares(board, states, player)
+						blockedSquares = attackedSquares(board, states)
 						if not [True for p in blockedSquares for cp in CONST.KING_CASTLE_STEPS[player][side] if p[0]==cp[0] and p[1]==cp[1]]:
 							yield (position, CONST.KING_CASTLE_STEPS[player][side][0])
 
@@ -90,7 +102,7 @@ def positionAllMoves(board, position, states, player, onlyFetchAttackSquares=Fal
 					else:
 						yield (position, newPosition)
 				else:
-					if states["EN_PASSANT"][CONST.OPPONENT[player]][newPosition[1]]:
+					if states["EN_PASSANT"][CONST.OPPONENT[player]] == newPosition[1]:
 						if (CONST.KING_LINE[CONST.OPPONENT[player]] + ((1+2) * CONST.PAWN_DIRECTION[CONST.OPPONENT[player]][0])) == position[0]:
 							if board[CONST.OPPONENT[player], position[0], newPosition[1]] == CONST.PAWN:
 								yield (position, newPosition)
@@ -115,12 +127,12 @@ def positionAllMoves(board, position, states, player, onlyFetchAttackSquares=Fal
 	else:
 		raise Exception
 
-
-def updateBoard(board, move, states, player):
+def updateBoard(board, move, states):
 	newBoard = np.copy(board)
 	newStates = deepcopy(states)
 	currentPos = move[0]
 	newPos = move[1]
+	player = states["PLAYER"]
 
 	piece = newBoard[player, currentPos[0], currentPos[1]]
 	opponentPiece = newBoard[CONST.OPPONENT[player], newPos[0], newPos[1]]
@@ -130,11 +142,11 @@ def updateBoard(board, move, states, player):
 	newBoard[player, newPos[0], newPos[1]] = piece
 
 	# reset en passant as only allowed immediately after
-	newStates["EN_PASSANT"][player] = [False] * CONST.BOARD_SIZE
+	newStates["EN_PASSANT"][player] = -1
 
 	if piece == CONST.KING:
-		newStates["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE] = False
-		newStates["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = False
+		newStates["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE] = 0
+		newStates["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = 0
 
 		if (currentPos[1] - newPos[1]) == 2:		#right castling
 			newBoard[player, currentPos[0], CONST.BOARD_SIZE - 1] = CONST.EMPTY
@@ -148,16 +160,16 @@ def updateBoard(board, move, states, player):
 		if newPos[0] == CONST.KING_LINE[CONST.OPPONENT[player]]:
 			newBoard[player, newPos[0], newPos[1]] = newPos[2]			#promotion
 		elif currentPos[0] == pawnLine and abs(currentPos[0] - newPos[0]) > 1:
-			newStates["EN_PASSANT"][player][newPos[1]] = True
+			newStates["EN_PASSANT"][player] = newPos[1]
 		elif opponentPiece == CONST.EMPTY:			#was en-passant
 			newBoard[CONST.OPPONENT[player], currentPos[0], newPos[1]] = CONST.EMPTY
 			opponentPiece = CONST.PAWN
 	
 	elif piece == CONST.ROOK:
 		if currentPos[1] == 0 and newStates["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE]:
-			newStates["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE] = False
+			newStates["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE] = 0
 		elif currentPos[1] == CONST.BOARD_SIZE - 1 and newStates["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE]:
-			newStates["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = False
+			newStates["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = 0
 	
 	elif piece in [CONST.BISHOP, CONST.KNIGHT, CONST.QUEEN]:
 		pass
@@ -165,6 +177,7 @@ def updateBoard(board, move, states, player):
 	else:
 		raise Exception
 
+	newStates["NUM_MOVES"] = newStates["NUM_MOVES"] + 1
 	return newBoard, newStates
 
 def moveIndex(move):
@@ -209,6 +222,36 @@ def moveFromIndex(idx):
 		newPos = np.array((newPosRow, newPosCol, promotion))
 
 	return (currentPos, newPos)
+
+def boardStateIndex(board, states):
+	idx =  board.tobytes()
+	sIdx = (str(states["EN_PASSANT"][CONST.WHITE_IDX]) , str(states["EN_PASSANT"][CONST.BLACK_IDX])
+		, str(states["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE]) , str(states["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE])
+		, str(states["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE])	, str(states["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE])
+		, str(states["PLAYER"]))
+
+	return idx + ",".join(sIdx)
+
+def boardStateFromIndex(idx):
+	boardIdx = idx[:CONST.BOARD_SIZE*CONST.BOARD_SIZE]
+	board = np.array(np.frombuffer(boardIdx, dtype=np.int8))
+
+	statesIdx = idx[CONST.BOARD_SIZE*CONST.BOARD_SIZE:].split(",")
+	states = {}
+	states["EN_PASSANT"] = {}
+	states["EN_PASSANT"][CONST.WHITE_IDX] = int(statesIdx[0])
+	states["EN_PASSANT"][CONST.BLACK_IDX] = int(statesIdx[1])
+
+	states["CASTLING_AVAILABLE"] = {CONST.WHITE_IDX:{}, CONST.BLACK_IDX:{}}
+	states["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE] = int(statesIdx[2])
+	states["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE] = int(statesIdx[3])
+	states["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE] = int(statesIdx[4])
+	states["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE] = int(statesIdx[5])
+
+	states["PLAYER"] = int(statesIdx[6])
+	states["NUM_MOVES"] = 0
+
+	return board, states
 
 def clipSlideMoves(board, position, direction, stepSize, player):
 	assert np.shape(direction) == (2,)
@@ -258,49 +301,52 @@ def piecePositions(board, player, piece):
 	for i in range(CONST.BOARD_SIZE):
 		for j in range(CONST.BOARD_SIZE):
 			if board[player, i, j] == piece:
-				positions.append(np.array((i, j), dtype=int))
+				positions.append(np.array((i, j), dtype=np.int8))
 	
 	return positions
 
 def play():
+	history = []
+
 	board, states = initializeBoard()
-
-	count = 0
-	player = CONST.WHITE_IDX
-	nonKingPieceCount = (board!=CONST.EMPTY).sum() - (board==CONST.KING).sum()
-	while(count < 1000 and nonKingPieceCount):
-		filteredMoves = []
-		for move in allMoves(board, states, player):		# remove moves which allow opponent to capture king in next move
-			tempBoard, tempStates = updateBoard(board, move, states, player)
-			kingPos = piecePositions(tempBoard, player, CONST.KING)[0]
-			for p in attackedSquares(tempBoard, tempStates, player):
-				if kingPos[0]==p[0] and kingPos[1]==p[1]:
-					break
-			else:
-				filteredMoves.append(move)
-
-		if not filteredMoves:
-			kingPos = piecePositions(board, player, CONST.KING)[0]
-			for p in attackedSquares(board, states, player):
-				if kingPos[0]==p[0] and kingPos[1]==p[1]:
-					states["WINNER"] = str(CONST.OPPONENT[player])
-					break
+	while(states["NUM_MOVES"] < CONST.MAX_MOVES and not np.array_equal((board!=CONST.EMPTY), (board==CONST.KING))):
+		moves = allMoves(board, states)
+		if not moves:
 			break
 
-		selectedMove = filteredMoves[int(random.random()*len(filteredMoves))]
-		board, states = updateBoard(board, selectedMove, states, player)
-		count = count + 1
+		selectedMove = moves[int(random.random()*len(moves))]
+		history.append((board, states, selectedMove))
 
-		player = CONST.OPPONENT[player]
-		nonKingPieceCount = (board!=CONST.EMPTY).sum() - (board==CONST.KING).sum()
+		board, states = updateBoard(board, selectedMove, states)
+		states["PLAYER"] = CONST.OPPONENT[states["PLAYER"]]
 
-	if states["WINNER"]:
-		print("winner : " + states["WINNER"])
+	history.append((board, states))
+	_ = finalScore(history)
+	return history
+
+def finalScore(history):
+	board, states = history[-1]
+	
+	score = 0
+	msg = ""
+	if states["NUM_MOVES"] >= CONST.MAX_MOVES:
+		msg = "draw, moves exceeded!"
+	elif np.array_equal((board!=CONST.EMPTY), (board==CONST.KING)):
+		msg = "draw, only kings!"
 	else:
-		if nonKingPieceCount:
-			print("draw, moves exceeded")
+		kingPos = piecePositions(board, states["PLAYER"], CONST.KING)[0]
+		for p in attackedSquares(board, states):
+			if kingPos[0]==p[0] and kingPos[1]==p[1]:
+				winner = CONST.OPPONENT[states["PLAYER"]]
+				msg = "winner : " + str(winner)
+				score = CONST.SCORING[winner]
+				break
 		else:
-			print("draw, only kings")
+			msg = "draw, stalemate!"
+	
+	print(board[CONST.WHITE_IDX]-board[CONST.BLACK_IDX])
+	print(msg, states["NUM_MOVES"], states["PLAYER"])
+	return score
 
 if __name__ == "__main__":
 	play()
