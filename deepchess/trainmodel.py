@@ -11,13 +11,12 @@ import h5py
 from . import constants as CONST
 from . import engine as EG
 from .models.models import *
-from .processing import fileaccess as FA
 
 def prepareModelInput(gameHistory):
 	score = EG.finalScore(gameHistory)
 	allInput = []
 
-	for i in range(len(gameHistory) - 1):
+	for i in range(len(gameHistory)):
 		boardInput = np.ones((CONST.BOARD_HISTORY, 2, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * CONST.EMPTY
 		for j in range(CONST.BOARD_HISTORY):
 			if i >= j:

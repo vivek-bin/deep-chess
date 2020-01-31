@@ -309,9 +309,9 @@ def play():
 	history = []
 
 	board, states = initializeBoard()
-	while(states["NUM_MOVES"] < CONST.MAX_MOVES and not np.array_equal((board!=CONST.EMPTY), (board==CONST.KING))):
+	while True:
 		moves = allMoves(board, states)
-		if not moves:
+		if (not moves) or (states["NUM_MOVES"] >= CONST.MAX_MOVES) or (np.array_equal((board!=CONST.EMPTY), (board==CONST.KING))):
 			break
 
 		selectedMove = moves[int(random.random()*len(moves))]

@@ -87,12 +87,13 @@ LOGS = PATH + "logs/"
 ###model parameters
 EMBEDDING_SIZE = 8
 MODEL_DEPTH = 20
-BOARD_HISTORY = 1
+BOARD_HISTORY = 4
 SCORE_DECAY = 0.9
 
 #DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 
 ###training parameters
+MC_EXPLORATION_CONST = 0.5
 DATA_PARTITIONS = 1000
 TRAIN_SPLIT_PCT = 0.90
 BATCH_SIZE = 32
