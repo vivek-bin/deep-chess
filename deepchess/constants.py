@@ -6,8 +6,8 @@ from time import time, ctime
 import os
 import sys
 import numpy as np
-#import tensorflow as tf
-#from tf.keras import backend as K
+import tensorflow as tf
+from tensorflow.keras import backend as K
 
 print(ctime().rjust(60,"-"))
 START_TIME = time()
@@ -29,7 +29,7 @@ class HiddenPrints:
 
 # game constants
 BOARD_SIZE = 8
-MAX_MOVES = 300
+MAX_MOVES = 200
 WHITE_IDX = 0
 BLACK_IDX = 1
 OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
@@ -90,7 +90,8 @@ MODEL_DEPTH = 20
 BOARD_HISTORY = 4
 SCORE_DECAY = 0.9
 
-#DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
+DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
+NUM_FILTERS = 32
 
 ###training parameters
 MC_EXPLORATION_CONST = 0.5

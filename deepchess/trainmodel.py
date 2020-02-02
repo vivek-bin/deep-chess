@@ -1,9 +1,10 @@
 import numpy as np
-from keras.models import load_model
-from keras.optimizers import Adam
+import tensorflow as tf
+from tensorflow.keras.models import load_model
+from tensorflow.keras.optimizers import Adam
 import json
-import keras.backend as K
-from keras.callbacks import ModelCheckpoint, TensorBoard, LearningRateScheduler
+import tensorflow.keras.backend as K
+from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, LearningRateScheduler
 import os
 import time
 import h5py
@@ -143,10 +144,10 @@ def trainModel():
 		callbacks.append(TensorBoard(log_dir=CONST.LOGS + "tensorboard-log", histogram_freq=1, batch_size=CONST.BATCH_SIZE, write_graph=False, write_grads=True, write_images=False))
 
 	# start training
-	_ = trainingModel.fit_generator([], epochs=CONST.NUM_EPOCHS*CONST.DATA_PARTITIONS, callbacks=callbacks, initial_epoch=initialEpoch)
+	#_ = trainingModel.fit_generator([], epochs=CONST.NUM_EPOCHS*CONST.DATA_PARTITIONS, callbacks=callbacks, initial_epoch=initialEpoch)
 
 	# save model after training
-	trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_TRAINED_NAME_SUFFIX)
+	#trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_TRAINED_NAME_SUFFIX)
 
 
 def main():

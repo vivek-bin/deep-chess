@@ -30,10 +30,8 @@ def main():
 		modelNum = 1
 
 	if trainModelFlag:
-		assert modelNum in [1, 2]
-
 		from deepchess.trainmodel import trainModel
-		trainModel(modelNum=modelNum)
+		trainModel()
 
 	if playFlag:
 		for _ in range(100):
