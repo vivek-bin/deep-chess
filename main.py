@@ -1,6 +1,5 @@
 import sys
 from deepchess import constants as CONST
-from deepchess import engine
 
 VALID_FLAGS = ["--train", "--play"]
 
@@ -8,7 +7,6 @@ def main():
 	flags = sys.argv[1:]
 	trainModelFlag = False
 	playFlag = False
-	modelNum = 0
 
 	try:
 		if flags[0] not in VALID_FLAGS:
@@ -22,20 +20,14 @@ def main():
 	except IndexError:
 		playFlag = True
 	
-	try:
-		i = flags.index("-m")
-		modelNum = int(flags.pop(i+1))
-		flags.pop(i)
-	except ValueError:
-		modelNum = 1
-
 	if trainModelFlag:
 		from deepchess.trainmodel import trainModel
 		trainModel()
 
 	if playFlag:
+		from deepchess.engine import play
 		for _ in range(100):
-			engine.play()
+			play()
 			print(CONST.LAPSED_TIME())
 
 

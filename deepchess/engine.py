@@ -29,32 +29,54 @@ def initializeGame():
 	return state
 
 def allActions(state):
-	player = state["PLAYER"]
 	actions = []
-
+	
 	for i in range(CONST.BOARD_SIZE):
 		for j in range(CONST.BOARD_SIZE):
 			position = np.array((i, j), dtype=np.int8)
-			for move in positionAllMoves(state, position):
-				tempState = updateBoard(state, move)
-				kingPos = kingPosition(tempState, player)
-				for pos in attackedSquares(tempState):				# remove moves which allow opponent to capture king in next move
-					if kingPos[0]==pos[0] and kingPos[1]==pos[1]:
-						break
-				else:
-					actions.append(move)
+			actions.extend(positionAllowedMoves(state, position, state["PLAYER"]))
 	
 	return actions
 
-def attackedSquares(state):
+def kingAttacked(state, player):
+	kingPos = None
 	for i in range(CONST.BOARD_SIZE):
 		for j in range(CONST.BOARD_SIZE):
-			position = np.array((i, j), dtype=np.int8)
-			for _, p in positionAllMoves(state, position, onlyFetchAttackSquares=True):
-				yield p
+			if state["BOARD"][player, i, j] == CONST.KING:
+				kingPos = np.array((i, j), dtype=np.int8)
+				break
+		if kingPos is not None:
+			break
+	else:
+		raise Exception		# no king found
 
-def positionAllMoves(state, position, onlyFetchAttackSquares=False):
-	player = CONST.OPPONENT[state["PLAYER"]] if onlyFetchAttackSquares else state["PLAYER"]
+	return positionAttacked(state, kingPos, player)
+
+def positionAttacked(state, position, player):
+	originalPiece = state["BOARD"][player, position[0], position[1]]
+
+	for piece in [CONST.PAWN, CONST.KNIGHT, CONST.BISHOP, CONST.ROOK, CONST.QUEEN, CONST.KING]:
+		state["BOARD"][player, position[0], position[1]] = piece
+		for _, p in positionMoves(state, position, player, onlyFetchAttackSquares=True):
+			if state["BOARD"][CONST.OPPONENT[player], p[0], p[1]] == piece:
+				state["BOARD"][player, position[0], position[1]] = originalPiece
+				return True
+	
+	state["BOARD"][player, position[0], position[1]] = originalPiece
+	return False
+
+def positionAllowedMoves(state, position, player):
+	moves = [move for move in positionMoves(state, position, player) if not kingAttacked(updateBoard(state, move), player)]
+	#
+	# the list comprehension above is a quicker version of the code below 
+	#moves = []
+	#for move in positionMoves(state, position, player):
+	#	tempState = updateBoard(state, move)
+	#	if not kingAttacked(tempState, player):
+	#		moves.append(move)
+	return moves
+
+def positionMoves(state, position, player, onlyFetchAttackSquares=False):
 	box = state["BOARD"][player, position[0], position[1]]
 
 	if box == CONST.EMPTY:
@@ -77,8 +99,10 @@ def positionAllMoves(state, position, onlyFetchAttackSquares=False):
 				if state["CASTLING_AVAILABLE"][player][side]:
 					if not [True for p in CONST.KING_CASTLE_STEPS[player][side] if state["BOARD"][player, p[0], p[1]] != CONST.EMPTY or state["BOARD"][CONST.OPPONENT[player], p[0], p[1]] != CONST.EMPTY]:
 						# check if king or his movement under attack
-						blockedSquares = attackedSquares(state)
-						if not [True for p in blockedSquares for cp in CONST.KING_CASTLE_STEPS[player][side] if p[0]==cp[0] and p[1]==cp[1]]:
+						for cp in CONST.KING_CASTLE_STEPS[player][side]:
+							if positionAttacked(state, cp, player):
+								break
+						else:
 							yield (position, CONST.KING_CASTLE_STEPS[player][side][0])
 
 
@@ -180,82 +204,8 @@ def updateBoard(state, move):
 
 	return newState
 
-def actionIndex(move):
-	currentPos = move[0]
-	newPos = move[1]
-
-	if len(newPos) > 2:			# promotion
-		promotion = CONST.PROMOTIONS.index(newPos[2])
-		newPawnLinearPos = (newPos[0] // (CONST.BOARD_SIZE - 1)) * CONST.BOARD_SIZE + newPos[1]
-		idx = (newPawnLinearPos * CONST.BOARD_SIZE + currentPos[1]) * len(CONST.PROMOTIONS) + promotion
-
-		idx = idx + 1 + (CONST.BOARD_SIZE**4)
-	else:
-		currentLinearPos = currentPos[0] * CONST.BOARD_SIZE + currentPos[1]
-		newLinearPos = newPos[0] * CONST.BOARD_SIZE + newPos[1]
-		idx = newLinearPos * (CONST.BOARD_SIZE**2) + currentLinearPos
-
-	return idx
-	
-def actionFromIndex(idx):
-	if idx < (CONST.BOARD_SIZE**4):
-		currentLinearPos = idx % (CONST.BOARD_SIZE * CONST.BOARD_SIZE)
-		currentPos = np.array((currentLinearPos // CONST.BOARD_SIZE, currentLinearPos % CONST.BOARD_SIZE))
-		
-		idx = idx // (CONST.BOARD_SIZE**2)
-		newLinearPos = idx % (CONST.BOARD_SIZE * CONST.BOARD_SIZE)
-		newPos = np.array((newLinearPos // CONST.BOARD_SIZE, newLinearPos % CONST.BOARD_SIZE))
-	else:
-		idx = idx - 1 - (CONST.BOARD_SIZE**4)
-
-		promotion = CONST.PROMOTIONS[idx % len(CONST.PROMOTIONS)]
-		idx = idx // len(CONST.PROMOTIONS)
-
-		currentPosCol = idx % CONST.BOARD_SIZE
-		idx = idx // CONST.BOARD_SIZE
-		newPosCol = idx % CONST.BOARD_SIZE
-		idx = idx // CONST.BOARD_SIZE
-		newPosRow = idx * (CONST.BOARD_SIZE - 1)
-		currentPosRow = abs(newPosRow - 1)
-
-		currentPos = np.array((currentPosRow, currentPosCol))
-		newPos = np.array((newPosRow, newPosCol, promotion))
-
-	return (currentPos, newPos)
-
-def stateIndex(state):
-	idx =  state["BOARD"].tobytes()
-	sIdx = (str(state["EN_PASSANT"][CONST.WHITE_IDX]) , str(state["EN_PASSANT"][CONST.BLACK_IDX])
-		, str(state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE]) , str(state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE])
-		, str(state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE])	, str(state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE])
-		, str(state["PLAYER"]))
-
-	return idx + ",".join(sIdx)
-
-def stateFromIndex(idx):
-	state = {}
-	boardIdx = idx[:CONST.BOARD_SIZE*CONST.BOARD_SIZE]
-	stateIdx = idx[CONST.BOARD_SIZE*CONST.BOARD_SIZE:].split(",")
-
-	state["BOARD"] = np.array(np.frombuffer(boardIdx, dtype=np.int8))
-
-	state["EN_PASSANT"] = {}
-	state["EN_PASSANT"][CONST.WHITE_IDX] = int(stateIdx[0])
-	state["EN_PASSANT"][CONST.BLACK_IDX] = int(stateIdx[1])
-
-	state["CASTLING_AVAILABLE"] = {CONST.WHITE_IDX:{}, CONST.BLACK_IDX:{}}
-	state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE] = int(stateIdx[2])
-	state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE] = int(stateIdx[3])
-	state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE] = int(stateIdx[4])
-	state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE] = int(stateIdx[5])
-
-	state["PLAYER"] = int(stateIdx[6])
-
-	return state
-
 def clipSlideMoves(state, position, direction, stepSize, player):
 	assert np.shape(direction) == (2,)
-	assert np.shape(position) == (2,)
 	assert direction[0] in (0, 1, -1)
 	assert direction[1] in (0, 1, -1)
 
@@ -278,9 +228,6 @@ def clipSlideMoves(state, position, direction, stepSize, player):
 	return moves
 
 def positionCheck(state, position, movement, player):
-	assert np.shape(position) == (2,)
-	assert np.shape(movement) == (2,)
-
 	newPosition = position + movement
 
 	if newPosition[0] < 0 or newPosition[0] >= CONST.BOARD_SIZE:
@@ -296,16 +243,6 @@ def positionCheck(state, position, movement, player):
 
 	return newPosition, capture
 
-def kingPosition(state, player):
-	positions = []
-
-	for i in range(CONST.BOARD_SIZE):
-		for j in range(CONST.BOARD_SIZE):
-			if state["BOARD"][player, i, j] == CONST.KING:
-				return np.array((i, j), dtype=np.int8)
-	
-	raise Exception
-
 def play():
 	history = []
 
@@ -313,11 +250,11 @@ def play():
 	count = 0
 	while True:
 		actions = allActions(state)
-		if (not actions) or (count >= CONST.MAX_MOVES) or (np.array_equal((state["BOARD"]!=CONST.EMPTY), (state["BOARD"]==CONST.KING))):
+		if (not actions) or (len(history) >= CONST.MAX_MOVES) or (np.array_equal((state["BOARD"]!=CONST.EMPTY), (state["BOARD"]==CONST.KING))):
 			break
 
 		selectedAction = actions[int(random.random()*len(actions))]
-		history.append((state, selectedAction))
+		history.append(dict(state=state, action=selectedAction))
 
 		state = updateBoard(state, selectedAction)
 		state["PLAYER"] = CONST.OPPONENT[state["PLAYER"]]
@@ -328,7 +265,7 @@ def play():
 	return history
 
 def finalScore(history):
-	state = history[-1]
+	state = history[-1]["STATE"]
 	
 	score = 0
 	msg = ""
@@ -337,13 +274,10 @@ def finalScore(history):
 	elif np.array_equal((state["BOARD"]!=CONST.EMPTY), (state["BOARD"]==CONST.KING)):
 		msg = "draw, only kings!"
 	else:
-		kingPos = kingPosition(state, state["PLAYER"])
-		for p in attackedSquares(state):
-			if kingPos[0]==p[0] and kingPos[1]==p[1]:
-				winner = CONST.OPPONENT[state["PLAYER"]]
-				msg = "winner : " + str(winner)
-				score = CONST.SCORING[winner]
-				break
+		if kingAttacked(state, state["PLAYER"]):
+			winner = CONST.OPPONENT[state["PLAYER"]]
+			score = CONST.SCORING[winner]
+			msg = "winner : " + str(winner)
 		else:
 			msg = "draw, stalemate!"
 	

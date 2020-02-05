@@ -6,8 +6,8 @@ from time import time, ctime
 import os
 import sys
 import numpy as np
-import tensorflow as tf
-from tensorflow.keras import backend as K
+#import tensorflow as tf
+#from tensorflow.keras import backend as K
 
 print(ctime().rjust(60,"-"))
 START_TIME = time()
@@ -90,8 +90,9 @@ MODEL_DEPTH = 20
 BOARD_HISTORY = 4
 SCORE_DECAY = 0.9
 
-DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
-NUM_FILTERS = 32
+DENSE_ACTIVATION = "relu"#lambda x: K.maximum(x, x * 0.1) # leaky relu
+NUM_FILTERS = 64
+CONV_SIZE = 3
 
 ###training parameters
 MC_EXPLORATION_CONST = 0.5
