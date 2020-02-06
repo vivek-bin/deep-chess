@@ -34,7 +34,7 @@ def allActions(state):
 	for i in range(CONST.BOARD_SIZE):
 		for j in range(CONST.BOARD_SIZE):
 			position = np.array((i, j), dtype=np.int8)
-			actions.extend(positionAllowedMoves(state, position, state["PLAYER"]))
+			actions.extend(positionAllowedMoves(state, position))
 	
 	return actions
 
@@ -48,6 +48,7 @@ def kingAttacked(state, player):
 		if kingPos is not None:
 			break
 	else:
+		printBoard(state)
 		raise Exception		# no king found
 
 	return positionAttacked(state, kingPos, player)
@@ -65,14 +66,14 @@ def positionAttacked(state, position, player):
 	state["BOARD"][player, position[0], position[1]] = originalPiece
 	return False
 
-def positionAllowedMoves(state, position, player):
-	moves = [move for move in positionMoves(state, position, player) if not kingAttacked(updateBoard(state, move), player)]
+def positionAllowedMoves(state, position):
+	moves = [move for move in positionMoves(state, position, state["PLAYER"]) if not kingAttacked(performAction(state, move), state["PLAYER"])]
 	#
 	# the list comprehension above is a quicker version of the code below 
 	#moves = []
-	#for move in positionMoves(state, position, player):
-	#	tempState = updateBoard(state, move)
-	#	if not kingAttacked(tempState, player):
+	#for move in positionMoves(state, position, state["PLAYER"]):
+	#	tempState = performAction(state, move)
+	#	if not kingAttacked(tempState, state["PLAYER"]):
 	#		moves.append(move)
 	return moves
 
@@ -152,7 +153,7 @@ def positionMoves(state, position, player, onlyFetchAttackSquares=False):
 	else:
 		raise Exception
 
-def updateBoard(state, move):
+def performAction(state, move):
 	newState = deepcopy(state)
 	newBoard = newState["BOARD"]
 	currentPos = move[0]
@@ -202,6 +203,9 @@ def updateBoard(state, move):
 	else:
 		raise Exception
 
+
+	newState["PLAYER"] = CONST.OPPONENT[newState["PLAYER"]]
+
 	return newState
 
 def clipSlideMoves(state, position, direction, stepSize, player):
@@ -243,47 +247,55 @@ def positionCheck(state, position, movement, player):
 
 	return newPosition, capture
 
-def play():
-	history = []
-
-	state = initializeGame()
-	count = 0
-	while True:
-		actions = allActions(state)
-		if (not actions) or (len(history) >= CONST.MAX_MOVES) or (np.array_equal((state["BOARD"]!=CONST.EMPTY), (state["BOARD"]==CONST.KING))):
-			break
-
-		selectedAction = actions[int(random.random()*len(actions))]
-		history.append(dict(state=state, action=selectedAction))
-
-		state = updateBoard(state, selectedAction)
-		state["PLAYER"] = CONST.OPPONENT[state["PLAYER"]]
-		count += 1
-
-	history.append(state)
-	_ = finalScore(history)
-	return history
-
-def finalScore(history):
-	state = history[-1]["STATE"]
-	
-	score = 0
-	msg = ""
-	if len(history) >= CONST.MAX_MOVES:
-		msg = "draw, moves exceeded!"
+def checkGameEnd(state, numActions, duration):
+	reward = 0
+	end = False
+	if duration >= CONST.MAX_MOVES:
+		end = "draw, moves exceeded!"
 	elif np.array_equal((state["BOARD"]!=CONST.EMPTY), (state["BOARD"]==CONST.KING)):
-		msg = "draw, only kings!"
-	else:
+		end = "draw, only kings!"
+	elif numActions == 0:
 		if kingAttacked(state, state["PLAYER"]):
 			winner = CONST.OPPONENT[state["PLAYER"]]
-			score = CONST.SCORING[winner]
-			msg = "winner : " + str(winner)
+			reward = CONST.SCORING[winner]
+			end = "winner : " + str(winner)
 		else:
-			msg = "draw, stalemate!"
+			end = "draw, stalemate!"
 	
+	return end, reward
+
+def init():
+	state = initializeGame()
+	actions = allActions(state)
+	end, reward = checkGameEnd(state, len(actions), 0)
+
+	return state, actions, end, reward
+
+def play(state, action, duration):
+	nextState = performAction(state, action)
+	actions = allActions(nextState)
+	end, reward = checkGameEnd(nextState, len(actions), duration)
+
+	return nextState, actions, end, reward
+
+def printBoard(state):
 	print(state["BOARD"][CONST.WHITE_IDX] - state["BOARD"][CONST.BLACK_IDX])
-	print(msg, len(history), state["PLAYER"])
-	return score
+	print(state["PLAYER"])
+
+def playGame():
+	history = []
+
+	state, actions, end, reward = init()
+	while not end:
+		action = actions[int(random.random()*len(actions))]
+		nextState, actions, end, reward = play(state, action, len(history))
+
+		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
+		state = nextState
+
+	printBoard(state)
+	print(end, len(history))
+	return history
 
 if __name__ == "__main__":
-	play()
+	playGame()
