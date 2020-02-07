@@ -14,17 +14,17 @@ from . import engine as EG
 from .models.models import *
 
 def prepareModelInput(gameHistory):
-	score = EG.finalScore(gameHistory)
+	score = gameHistory[-1]["REWARD"]
 	allInput = []
 
 	for i in range(len(gameHistory)):
 		boardInput = np.ones((CONST.BOARD_HISTORY, 2, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * CONST.EMPTY
 		for j in range(CONST.BOARD_HISTORY):
 			if i >= j:
-				boardInput[j] = gameHistory[i-j][0]
+				boardInput[j] = np.array(gameHistory[i-j]["STATE"]["BOARD"], dtype=np.int8)
 		boardInput = boardInput.reshape((-1, CONST.BOARD_SIZE, CONST.BOARD_SIZE))
 
-		states = gameHistory[i][1]
+		states = gameHistory[i]["STATE"]
 		
 		playerInput = np.ones((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * states["PLAYER"]
 		

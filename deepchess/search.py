@@ -1,6 +1,5 @@
 from . import constants as CONST
 import math
-import numpy as np
 
 
 def actionIndex(move):
@@ -23,11 +22,11 @@ def actionIndex(move):
 def actionFromIndex(idx):
 	if idx < (CONST.BOARD_SIZE**4):
 		currentLinearPos = idx % (CONST.BOARD_SIZE * CONST.BOARD_SIZE)
-		currentPos = np.array((currentLinearPos // CONST.BOARD_SIZE, currentLinearPos % CONST.BOARD_SIZE))
+		currentPos = (currentLinearPos // CONST.BOARD_SIZE, currentLinearPos % CONST.BOARD_SIZE)
 		
 		idx = idx // (CONST.BOARD_SIZE**2)
 		newLinearPos = idx % (CONST.BOARD_SIZE * CONST.BOARD_SIZE)
-		newPos = np.array((newLinearPos // CONST.BOARD_SIZE, newLinearPos % CONST.BOARD_SIZE))
+		newPos = (newLinearPos // CONST.BOARD_SIZE, newLinearPos % CONST.BOARD_SIZE)
 	else:
 		idx = idx - 1 - (CONST.BOARD_SIZE**4)
 
@@ -41,38 +40,45 @@ def actionFromIndex(idx):
 		newPosRow = idx * (CONST.BOARD_SIZE - 1)
 		currentPosRow = abs(newPosRow - 1)
 
-		currentPos = np.array((currentPosRow, currentPosCol))
-		newPos = np.array((newPosRow, newPosCol, promotion))
+		currentPos = (currentPosRow, currentPosCol)
+		newPos = (newPosRow, newPosCol, promotion)
 
 	return (currentPos, newPos)
 
 def stateIndex(state):
-	idx =  state["BOARD"].tobytes()
+	idx =  "".join([str(box) for playerBoard in state["BOARD"] for row in playerBoard for box in row])
 	sIdx = (str(state["EN_PASSANT"][CONST.WHITE_IDX]) , str(state["EN_PASSANT"][CONST.BLACK_IDX])
-		, str(state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE]) , str(state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE])
-		, str(state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE])	, str(state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE])
+		, str(state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE]) 
+		, str(state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE])
+		, str(state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE]) 
+		, str(state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE])
 		, str(state["PLAYER"]))
 
 	return idx + ",".join(sIdx)
 
 def stateFromIndex(idx):
 	state = {}
-	boardIdx = idx[:CONST.BOARD_SIZE*CONST.BOARD_SIZE]
-	stateIdx = idx[CONST.BOARD_SIZE*CONST.BOARD_SIZE:].split(",")
+	boardIdx = [int(x) for x in idx[:2*CONST.BOARD_SIZE*CONST.BOARD_SIZE]]
+	stateIdx = [int(x) for x in idx[2*CONST.BOARD_SIZE*CONST.BOARD_SIZE:].split(",")]
 
-	state["BOARD"] = np.array(np.frombuffer(boardIdx, dtype=np.int8))
+	state["BOARD"] = []
+	for p in range(2):
+		state["BOARD"].append([])
+		for i in range(CONST.BOARD_SIZE):
+			rowIdx = p*CONST.BOARD_SIZE*CONST.BOARD_SIZE + i*CONST.BOARD_SIZE
+			state["BOARD"][p].append(boardIdx[rowIdx:rowIdx + CONST.BOARD_SIZE])
 
 	state["EN_PASSANT"] = {}
-	state["EN_PASSANT"][CONST.WHITE_IDX] = int(stateIdx[0])
-	state["EN_PASSANT"][CONST.BLACK_IDX] = int(stateIdx[1])
+	state["EN_PASSANT"][CONST.WHITE_IDX] = stateIdx[0]
+	state["EN_PASSANT"][CONST.BLACK_IDX] = stateIdx[1]
 
 	state["CASTLING_AVAILABLE"] = {CONST.WHITE_IDX:{}, CONST.BLACK_IDX:{}}
-	state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE] = int(stateIdx[2])
-	state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE] = int(stateIdx[3])
-	state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE] = int(stateIdx[4])
-	state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE] = int(stateIdx[5])
+	state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.LEFT_CASTLE] = stateIdx[2]
+	state["CASTLING_AVAILABLE"][CONST.WHITE_IDX][CONST.RIGHT_CASTLE] = stateIdx[3]
+	state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.LEFT_CASTLE] = stateIdx[4]
+	state["CASTLING_AVAILABLE"][CONST.BLACK_IDX][CONST.RIGHT_CASTLE] = stateIdx[5]
 
-	state["PLAYER"] = int(stateIdx[6])
+	state["PLAYER"] = stateIdx[6]
 
 	return state
 
