@@ -27,6 +27,8 @@ class HiddenPrints:
 		sys.stderr = self._original_stderr
 
 # game constants
+DISPLAY_TEXT_BOARD = True
+DISPLAY_TK_BOARD = False
 BOARD_SIZE = 8
 MAX_MOVES = 200
 WHITE_IDX = 0
@@ -79,17 +81,17 @@ def MULTIPLYL(l1, l2):
 GOOGLE_DRIVE_PATH = "/content/drive/My Drive/"
 if isdir(GOOGLE_DRIVE_PATH):
 	PATH = GOOGLE_DRIVE_PATH
-	PROJECT = GOOGLE_DRIVE_PATH
 else:
 	PATH = dirname(dirname(dirname(abspath(getsourcefile(lambda:0))))) + "/"
-	PROJECT = dirname(dirname(abspath(getsourcefile(lambda:0)))) + "/"
+PROJECT = dirname(dirname(abspath(getsourcefile(lambda:0)))) + "/"
 
 
 ###data paths
 MODELS = PATH + "models/"
 DATA = PATH + "data/"
 LOGS = PATH + "logs/"
-
+IMAGES = PROJECT + "deepchess/images/"
+IMAGE_SIZE = 60
 
 ###model parameters
 EMBEDDING_SIZE = 8
