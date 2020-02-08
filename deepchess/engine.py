@@ -104,7 +104,7 @@ def positionMoves(state, position, player, onlyFetchAttackSquares=False):
 							if positionAttacked(state, cp, player):
 								break
 						else:
-							yield (position, CONST.KING_CASTLE_STEPS[player][side][0])
+							yield (position, CONST.KING_CASTLE_STEPS[player][side][-1])
 
 
 	elif box == CONST.KNIGHT:
@@ -176,10 +176,10 @@ def performAction(state, move):
 
 		if (currentPos[1] - newPos[1]) == 2:		#right castling
 			newBoard[player][currentPos[0]][CONST.BOARD_SIZE - 1] = CONST.EMPTY
-			newBoard[player][newPos[0]][newPos[1] - 1] = CONST.ROOK
+			newBoard[player][newPos[0]][newPos[1] + 1] = CONST.ROOK
 		elif (currentPos[1] - newPos[1]) == -2:		#left castling
 			newBoard[player][currentPos[0]][0] = CONST.EMPTY
-			newBoard[player][newPos[0]][newPos[1] + 1] = CONST.ROOK
+			newBoard[player][newPos[0]][newPos[1] - 1] = CONST.ROOK
 	
 	elif piece == CONST.PAWN:
 		pawnLine = (CONST.KING_LINE[player] + CONST.PAWN_DIRECTION[player][0])
@@ -189,7 +189,6 @@ def performAction(state, move):
 			newState["EN_PASSANT"][player] = newPos[1]
 		elif opponentPiece == CONST.EMPTY:			#was en-passant
 			newBoard[CONST.OPPONENT[player]][currentPos[0]][newPos[1]] = CONST.EMPTY
-			opponentPiece = CONST.PAWN
 	
 	elif piece == CONST.ROOK:
 		if currentPos[1] == 0 and newState["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE]:
@@ -271,7 +270,7 @@ def init():
 
 	return state, actions, end, reward
 
-def play(state, action, duration):
+def play(state, action, duration=0):
 	nextState = performAction(state, action)
 	actions = allActions(nextState)
 	end, reward = checkGameEnd(nextState, len(actions), duration)
@@ -304,7 +303,7 @@ def playGame():
 
 	print(end, len(history))
 	printBoard(state)
-	return history
+	return end, history
 
 def displayTk(state):
 	root = tk.Tk()
@@ -337,11 +336,10 @@ def displayTk(state):
 		i = event.y // CONST.IMAGE_SIZE
 
 		for _, box in positionAllowedMoves(state, (i,j)):
-			canvas.create_image(box[1]*CONST.IMAGE_SIZE, box[0]*CONST.IMAGE_SIZE, image=moveImgTk, anchor=tk.NW, tags="move")
+			canvas.create_image(box[1]*CONST.IMAGE_SIZE, box[0]*CONST.IMAGE_SIZE, image=moveImgTk, anchor=tk.NW, tags=("move","piece"))
 
 	canvas.tag_bind("piece", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk: onClick(event, state, moveImgTk))
 	canvas.tag_bind("board", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk: onClick(event, state, moveImgTk))
-	canvas.tag_bind("move", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk: onClick(event, state, moveImgTk))
 
 	# create board
 	canvas.create_image(0, 0, image=boardImgTk, anchor=tk.NW, tags="board")

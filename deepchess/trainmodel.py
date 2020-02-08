@@ -10,7 +10,7 @@ import time
 import h5py
 
 from . import constants as CONST
-from . import engine as EG
+from . import search as SE
 from .models.models import *
 
 def prepareModelInput(gameHistory):
@@ -45,15 +45,11 @@ def prepareModelInput(gameHistory):
 				for _ in range(3):
 					pawnPos = pawnPos + movement
 					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
-					pawnPos = pawnPos + movement
-					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
-					pawnPos = pawnPos + movement
-					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
 		statesInput = np.concatenate([playerInput, castlingStateInput, enPassantStateInput])
 
 
 		moveScore = score * (CONST.SCORE_DECAY ** (len(gameHistory) - i - 1))
-		moveIndex = EG.moveIndex(gameHistory[i][2])
+		moveIndex = SE.moveIndex(gameHistory[i][2])
 
 		x = (boardInput, statesInput)
 		y = (moveScore, moveIndex)

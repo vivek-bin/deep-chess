@@ -27,10 +27,10 @@ class HiddenPrints:
 		sys.stderr = self._original_stderr
 
 # game constants
-DISPLAY_TEXT_BOARD = True
-DISPLAY_TK_BOARD = False
+DISPLAY_TEXT_BOARD = False
+DISPLAY_TK_BOARD = True
 BOARD_SIZE = 8
-MAX_MOVES = 200
+MAX_MOVES = 300
 WHITE_IDX = 0
 BLACK_IDX = 1
 OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
