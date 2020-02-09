@@ -248,7 +248,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 			if(onlyFetchAttackSquares == 0){
 				if(getCastling(castling, player, LEFT_CASTLE)){
 					flag = 1;
-					for(i=0;i<3;i++){
+					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
 						y = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
 						if(getBoardBox(board, player, x, y) != EMPTY || getBoardBox(board, OPPONENT(player), x, y) != EMPTY){
@@ -269,7 +269,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 				}
 				if(getCastling(castling, player, RIGHT_CASTLE)){
 					flag = 1;
-					for(i=0;i<3;i++){
+					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
 						y = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
 						if(getBoardBox(board, player, x, y) != EMPTY || getBoardBox(board, OPPONENT(player), x, y) != EMPTY){
@@ -594,10 +594,10 @@ PyObject* performAction(PyObject* state, PyObject* move){
 			PyDict_SetItem(castlingPy, PyInt_FromInt(RIGHT_CASTLE), PyInt_FromInt(0));
 			
 			if(oldY - newY == 2){
-				PyDict_SetItem(PyDict_GetItem(boardPy, oldXPy), PyInt_FromInt(BOARD_SIZE-1), PyInt_FromInt(EMPTY));
+				PyDict_SetItem(PyDict_GetItem(boardPy, oldXPy), PyInt_FromInt(0), PyInt_FromInt(EMPTY));
 				PyDict_SetItem(PyDict_GetItem(boardPy, oldXPy), PyInt_FromInt(oldY-1), PyInt_FromInt(ROOK));
 			}else if(newY - oldY == 2){
-				PyDict_SetItem(PyDict_GetItem(boardPy, oldXPy), PyInt_FromInt(0), PyInt_FromInt(EMPTY));
+				PyDict_SetItem(PyDict_GetItem(boardPy, oldXPy), PyInt_FromInt(BOARD_SIZE-1), PyInt_FromInt(EMPTY));
 				PyDict_SetItem(PyDict_GetItem(boardPy, oldXPy), PyInt_FromInt(oldY+1), PyInt_FromInt(ROOK));
 			}
 			break;

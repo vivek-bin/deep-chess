@@ -98,7 +98,7 @@ def positionMoves(state, position, player, onlyFetchAttackSquares=False):
 			# castling available => king and rook not moved
 			for side in [CONST.LEFT_CASTLE, CONST.RIGHT_CASTLE]:
 				if state["CASTLING_AVAILABLE"][player][side]:
-					if not [True for p in CONST.KING_CASTLE_STEPS[player][side] if state["BOARD"][player][p[0]][p[1]] != CONST.EMPTY or state["BOARD"][CONST.OPPONENT[player]][p[0]][p[1]] != CONST.EMPTY]:
+					if not [True for p in CONST.KING_CASTLE_STEPS[player][side][1:] if state["BOARD"][player][p[0]][p[1]] != CONST.EMPTY or state["BOARD"][CONST.OPPONENT[player]][p[0]][p[1]] != CONST.EMPTY]:
 						# check if king or his movement under attack
 						for cp in CONST.KING_CASTLE_STEPS[player][side]:
 							if positionAttacked(state, cp, player):
@@ -175,10 +175,10 @@ def performAction(state, move):
 		newState["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE] = 0
 
 		if (currentPos[1] - newPos[1]) == 2:		#right castling
-			newBoard[player][currentPos[0]][CONST.BOARD_SIZE - 1] = CONST.EMPTY
+			newBoard[player][currentPos[0]][0] = CONST.EMPTY
 			newBoard[player][newPos[0]][newPos[1] + 1] = CONST.ROOK
 		elif (currentPos[1] - newPos[1]) == -2:		#left castling
-			newBoard[player][currentPos[0]][0] = CONST.EMPTY
+			newBoard[player][currentPos[0]][CONST.BOARD_SIZE - 1] = CONST.EMPTY
 			newBoard[player][newPos[0]][newPos[1] - 1] = CONST.ROOK
 	
 	elif piece == CONST.PAWN:
