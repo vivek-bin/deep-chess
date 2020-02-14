@@ -25,8 +25,8 @@ def main():
 		trainModel()
 
 	if playFlag:
-		from deepchess.engine import playGame
-		for _ in range(100):
+		from deepchess.play import playGame
+		for _ in range(1):
 			end, history = playGame()
 			print(CONST.LAPSED_TIME())
 
