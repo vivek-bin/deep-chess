@@ -43,25 +43,28 @@ const int CASTLE_BLACK_LEFT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2}, {BOARD_SIZE 
 const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 2}};
 
 const int MAX_PIECE_MOVES = 4*(BOARD_SIZE-1);
-const int MAX_MOVES = MAX_PIECE_MOVES*2*BOARD_SIZE;
+const int MAX_AVAILABLE_MOVES = MAX_PIECE_MOVES*2*BOARD_SIZE;
 const int STATE_SIZE = 2*BOARD_SIZE*BOARD_SIZE + 4 + 2 + 1;
+const char END_MESSAGE[4][15] = {"max_steps", "only_kings", "stalemate", "loss"};
+
+const int MAX_GAME_STEPS = 300;
 
 
 PyObject* stateToPy(int* state){
 	PyObject* pyState, *board, *boardPlayer, *boardRow, *castling, *castlingPlayer, *enPassant, *player;
 	int i, j, k;
 
-	board = PyList_New();
+	board = PyList_New(2);
 	for(i=0; i<2; i++){
-		boardPlayer = PyList_New();
+		boardPlayer = PyList_New(BOARD_SIZE);
 		for(j=0; j<BOARD_SIZE; j++){
-			boardRow = PyList_New();
+			boardRow = PyList_New(BOARD_SIZE);
 			for(k=0; k<BOARD_SIZE; k++){
-				PyList_Append(boardRow, PyInt_FromInt(getBoardBox(state, i, j, k)));
+				PyList_SetItem(boardRow, k, PyInt_FromInt(getBoardBox(state, i, j, k)));
 			}
-			PyList_Append(boardPlayer, boardRow);
+			PyList_SetItem(boardPlayer, j, boardRow);
 		}
-		PyList_Append(board, boardPlayer);
+		PyList_SetItem(board, i, boardPlayer);
 	}
 
 	enPassant = PyDict_New();
@@ -113,13 +116,13 @@ void stateFromPy(PyObject* pyState, int* state){
 	setCastling(state, PyInt_AsLong(PyDict_GetItem(PyDict_GetItem(castling, PyInt_FromInt(BLACK_IDX)), PyInt_FromInt(RIGHT_CASTLE))), BLACK_IDX, RIGHT_CASTLE);
 }
 
-PyObject* actionsToPy(int* positions, int single=0){
-	PyObject* pyActions, move, oldPos, newPos;
+PyObject* actionsToPy(int* positions){
+	PyObject *pyActions, *move, *oldPos, *newPos;
 	int i, tot;
 
 	tot = 0;
-	pyActions = PyTuple_New(MAX_MOVES);
-	for(i=0; positions[i]!=-1 && (i<single || !single);){
+	pyActions = PyTuple_New(MAX_AVAILABLE_MOVES);
+	for(i=0; positions[i]!=-1; ){
 		move = PyTuple_New(2);
 
 		oldPos = PyTuple_New(2);
@@ -151,7 +154,6 @@ void actionFromPy(PyObject* pyAction, int* action){
 	action[1] = PyTuple_GetItem(PyTuple_GetItem(pyAction, PyInt_FromInt(0)), PyInt_FromInt(1));
 	action[2] = PyTuple_GetItem(PyTuple_GetItem(pyAction, PyInt_FromInt(1)), PyInt_FromInt(0));
 	action[3] = PyTuple_GetItem(PyTuple_GetItem(pyAction, PyInt_FromInt(1)), PyInt_FromInt(1));
-	action[4] = PyTuple_GetItem(PyTuple_GetItem(pyAction, PyInt_FromInt(1)), PyInt_FromInt(2));
 	if(PyInt_FromInt(PyTuple_Size(PyTuple_GetItem(pyAction, PyInt_FromInt(1)))>2){
 		action[4] = PyTuple_GetItem(PyTuple_GetItem(pyAction, PyInt_FromInt(1)), PyInt_FromInt(2));
 	}
@@ -160,7 +162,18 @@ void actionFromPy(PyObject* pyAction, int* action){
 	}
 }
 
+void freeMem(int* var){
+	free(var);
+}
 
+
+
+void copyState(int* state, int* blankState){
+	int i;
+	for(i=0; i<STATE_SIZE; i++){
+		blankState[i] = state[i];
+	}
+}
 
 int getBoardBox(int* state, int player, int row, int col){
 	int idx = player*BOARD_SIZE*BOARD_SIZE + row*BOARD_SIZE + col;
@@ -236,10 +249,7 @@ void initializeCastling(int* state){
 int* initializeGame(){
 	int* state;
 	state = (int*) calloc(STATE_SIZE, sizeof(int));
-	initializeBoard(state);
-	initializeCastling(state);
-	setEnPassant(state, -1, WHITE_IDX);setEnPassant(state, -1, BLACK_IDX);
-	setPlayer(state, WHITE_IDX);
+	initializeGame(state);
 
 	return state;
 }
@@ -252,34 +262,35 @@ void initializeGame(int* state){
 }
 
 
-int clipSlideMoves(int* board, int player, int* position, int* direction){
+
+int clipSlideMoves(int* state, int player, int* position, int* direction){
 	int x,y; 
 	int move;
 	move = 1;
 	while(1){
 		x = position[0] + move*direction[0];
 		y = position[1] + move*direction[1];
-		if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(board, player, x, y) != EMPTY){
+		if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(state, player, x, y) != EMPTY){
 			break;
 		}
 		++move;
-		if(getBoardBox(board, OPPONENT(player), x, y) != EMPTY){
+		if(getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 			break;
 		}
 	}
 	return move - 1;
 }
 
-int positionCheck(int* board, int player, int x, int y){
-	if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(board, player, x, y) != EMPTY){
+int positionCheck(int* state, int player, int x, int y){
+	if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(state, player, x, y) != EMPTY){
 		return -1;
 	}
 
-	return getBoardBox(board, OPPONENT(player), x, y);
+	return getBoardBox(state, OPPONENT(player), x, y);
 }
 
-void positionMoves(int* positions, int* board, int* castling, int* enPassant, int* position, int player, int onlyFetchAttackSquares){
-	int box = getBoardBox(board, player, position[0], position[1]);
+void positionMoves(int* positions, int* state, int* position, int player, int onlyFetchAttackSquares){
+	int box = getBoardBox(state, player, position[0], position[1]);
 	int i, j;
 	int x, y;
 	int posI;
@@ -293,7 +304,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 		case BISHOP:
 			for(i=0;i<4;i++){
 				direction = MOVE_DIRECTIONS_BISHOP[i];
-				clipLim = clipSlideMoves(board, player, position, direction);
+				clipLim = clipSlideMoves(state, player, position, direction);
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
@@ -304,7 +315,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 		case ROOK:
 			for(i=0;i<4;i++){
 				direction = MOVE_DIRECTIONS_ROOK[i];
-				clipLim = clipSlideMoves(board, player, position, direction);
+				clipLim = clipSlideMoves(state, player, position, direction);
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
@@ -315,7 +326,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 		case QUEEN:
 			for(i=0;i<8;i++){
 				direction = MOVE_DIRECTIONS_QUEEN[i];
-				clipLim = clipSlideMoves(board, player, position, direction);
+				clipLim = clipSlideMoves(state, player, position, direction);
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
@@ -327,7 +338,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 			for(i=0;i<8;i++){
 				x = position[0] + KNIGHT_MOVES[i][0];
 				y = position[1] + KNIGHT_MOVES[i][1];
-				if(positionCheck(board, player, x, y)>=0){
+				if(positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
 					positions[++posI] = 0;
@@ -338,25 +349,25 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 			for(i=0;i<8;i++){
 				x = position[0] + KING_MOVES[i][0];
 				y = position[1] + KING_MOVES[i][1];
-				if(positionCheck(board, player, x, y)>=0){
+				if(positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
 					positions[++posI] = 0;
 				}
 			}
 			if(onlyFetchAttackSquares == 0){
-				if(getCastling(castling, player, LEFT_CASTLE)){
+				if(getCastling(state, player, LEFT_CASTLE)){
 					flag = 1;
 					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
 						y = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
-						if(getBoardBox(board, player, x, y) != EMPTY || getBoardBox(board, OPPONENT(player), x, y) != EMPTY){
+						if(getBoardBox(state, player, x, y) != EMPTY || getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 							flag = 0;break;
 						}
 					}
 					for(i=0;flag && i<3;i++){
 						pos[0]=x;pos[1]=y;
-						if(positionAttacked(board, castling, enPassant, pos, player)){
+						if(positionAttacked(state, pos, player)){
 							flag = 0;break;
 						}
 					}
@@ -366,18 +377,18 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 						positions[++posI] = 0;
 					}
 				}
-				if(getCastling(castling, player, RIGHT_CASTLE)){
+				if(getCastling(state, player, RIGHT_CASTLE)){
 					flag = 1;
 					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
 						y = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
-						if(getBoardBox(board, player, x, y) != EMPTY || getBoardBox(board, OPPONENT(player), x, y) != EMPTY){
+						if(getBoardBox(state, player, x, y) != EMPTY || getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 							flag = 0;break;
 						}
 					}
 					for(i=0;flag && i<3;i++){
 						pos[0]=x;pos[1]=y;
-						if(positionAttacked(board, castling, enPassant, pos, player)){
+						if(positionAttacked(state, pos, player)){
 							flag = 0;break;
 						}
 					}
@@ -393,7 +404,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 			for(i=0;i<2;i++){
 				x = position[0] + PAWN_CAPTURE_MOVES[i][0];
 				y = position[1] + PAWN_CAPTURE_MOVES[i][1]*PAWN_DIRECTION(player);
-				temp = positionCheck(board, player, x, y);
+				temp = positionCheck(state, player, x, y);
 				if(temp>0){
 					if(onlyFetchAttackSquares==0 && x==KING_LINE(player)){
 						positions[++posI] = x;
@@ -413,7 +424,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 						positions[++posI] = y;
 						positions[++posI] = 0;
 					}
-				}else if(temp==0 && enPassant[player]==y && getBoardBox(board, OPPONENT(player), position[0], y)==PAWN){
+				}else if(temp==0 && enPassant[player]==y && getBoardBox(state, OPPONENT(player), position[0], y)==PAWN){
 					if(KING_LINE(OPPONENT(player)) + ((1+2)*PAWN_DIRECTION(OPPONENT(player))) == x){
 						positions[++posI] = x;
 						positions[++posI] = y;
@@ -424,7 +435,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 			if(onlyFetchAttackSquares==0){
 				x = position[0] + PAWN_NORMAL_MOVE[0];
 				y = position[1] + PAWN_NORMAL_MOVE[1]*PAWN_DIRECTION(player);
-				if(positionCheck(board, player, x, y)==0){
+				if(positionCheck(state, player, x, y)==0){
 					if(y==KING_LINE(OPPONENT(player))){
 						positions[++posI] = x;
 						positions[++posI] = y;
@@ -445,7 +456,7 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 
 						x = position[0] + PAWN_FIRST_MOVE[0];
 						y = position[1] + PAWN_FIRST_MOVE[1]*PAWN_DIRECTION(player);
-						if(positionCheck(board, player, x, y)==0){
+						if(positionCheck(state, player, x, y)==0){
 							positions[++posI] = x;
 							positions[++posI] = y;
 							positions[++posI] = 0;
@@ -454,22 +465,27 @@ void positionMoves(int* positions, int* board, int* castling, int* enPassant, in
 				}
 			}
 			break;
-		default: printf("unknown piece!");break;
+		default: printf("unknown piece!");
+			break;
 	}
-
 }
 
-void positionAllowedMoves(int* positions, int* state, int* position, int player){
+void positionAllowedMoves(int* positions, int* state, int* position){
 	int i, j, gap;
+	int tempState[STATE_SIZE], move[5];
 
-	positionMoves(positions, state, position, player, 0);
+	positionMoves(positions, state, position, getPlayer(state), 0);
 
 	gap=0;
 	for(i=0; i<MAX_PIECE_MOVES*3; i+=3){
 		if(positions[i]==-1){
 			break;
 		}
-		if(kingAttacked(state)){	tfiytfurdrd // updated board to be checked!
+		move[0] = position[0]; move[1] = position[1];
+		move[2] = positions[i+0]; move[3] = positions[i+1]; move[4] = positions[i+2];
+		copyState(state, tempState);
+		performAction(tempState, move);
+		if(kingAttacked(tempState, getPlayer(state))){	tfiytfurdrd // updated board to be checked!
 			gap+=3;
 			continue;
 		}
@@ -492,13 +508,13 @@ int positionAttacked(int* state, int* position, int player){
 	int positions[(MAX_PIECE_MOVES+1)*3];
 	
 	originalPiece = getBoardBox(state, player, position[0], position[1]);
-	for(i=0;i<(MAX_PIECE_MOVES+1)*3;i++){
-		positions[i] = -1;
-	}
 
 	flag = 0;
 	for(i=0; i<6; i++){
 		setBoardBox(state, PIECES[i], player, position[0], position[1]);
+		for(j=0;j<(MAX_PIECE_MOVES+1)*3;j++){
+			positions[j] = -1;
+		}
 		positionMoves(positions, state, position, player, 1);
 
 		for(j=0; positions[j]!=-1; j+=3){
@@ -514,13 +530,12 @@ int positionAttacked(int* state, int* position, int player){
 	return flag;
 }
 
-int kingAttacked(int* state){
-	int position[2];
+void kingPosition(int* state, int player, int *position){
 	int i, j, flag;
 	flag = 0;
 	for(i=0; i<BOARD_SIZE; i++){
 		for(j=0;j<BOARD_SIZE; j++){
-			if(getBoardBox(state, getPlayer(state), i, j)==KING){
+			if(getBoardBox(state, player, i, j)==KING){
 				position[0]=i;
 				position[1]=j;
 				flag=1;
@@ -534,8 +549,13 @@ int kingAttacked(int* state){
 	if(!flag){
 		printf("no king found!");
 	}
+}
 
-	return positionAttacked(state, position, getPlayer(state));
+int kingAttacked(int* state, int player){
+	int position[2];
+	kingPosition(state, player, position);
+
+	return positionAttacked(state, position, player);
 }
 
 void allActions(int* state, int *moves){
@@ -614,45 +634,64 @@ void performAction(int* state, int* move){
 	setPlayer(state, OPPONENT(player));
 }
 
-PyObject* __initializeGame(){
-	int state[STATE_SIZE];
-	initializeGame(state);
-	return stateToPy(state);
-}
-
-PyObject* __performAction(PyObject* pyState, PyObject* pyMove){
-	int state[STATE_SIZE], move[5];
-	PyObject *oldPos, *newPos;
-
-	stateFromPy(pyState, state);
-	actionFromPy(pyMove, move);
+int checkGameEnd(int* state, int *actions, int duration){
+	int endIdx;
+	int i,j,k,flag;
+	endIdx = -1;
 	
-	performAction(state, move);
-	return stateToPy(state);
+	if(duration>MAX_GAME_STEPS){
+		endIdx = 0;
+	}
+	else{
+		flag = 1;
+		for(i=0; i<2; i++)
+			for(j=0; j<BOARD_SIZE; j++)
+				for(k=0; k<BOARD_SIZE; k++)
+					if(getBoardBox(state, i, j, k) != EMPTY || getBoardBox(state, i, j, k) != KING)
+						flag = 0;
+		if(flag){
+			endIdx = 1;
+		}
+	}
+	if(actions[0]==-1){
+		if(kingAttacked(state, getPlayer(state))
+			endIdx = 3;
+		else{
+			endIdx = 2;
+		}
+	}
+	return endIdx;
 }
 
-PyObject* __allActions(PyObject* pyState){
-	int state[STATE_SIZE], positions[MAX_MOVES*5];
+PyObject* __kingAttacked(PyObject* self, PyObject *args){
+	int state[STATE_SIZE], position[2], flag;
+	PyObject *pyState, pyOutput;
+
+	pyState = PyTuple_GetItem(args, 0);
 	stateFromPy(pyState, state);
 
-	allActions(state, positions);
-	return actionsToPy(positions);
+	flag = kingAttacked(state, getPlayer(state));
+	if(flag){
+		pyOutput = PyTuple_New(2);
+		PyTuple_SetItem(pyOutput, 0, PyInt_FromInt(position[0]));
+		PyTuple_SetItem(pyOutput, 1, PyInt_FromInt(position[1]));
+	}
+	else{
+		pyOutput = PyBool_FromLong(flag);
+	}
+	return pyOutput;
 }
 
-PyObject* __kingAttacked(PyObject* pyState){
-	int state[STATE_SIZE];
-	stateFromPy(pyState, state);
-	return PyBool_FromLong(kingAttacked(state));
-}
-
-PyObject* __positionAllowedMoves(PyObject* pyState, PyObject* position){
-	int state[STATE_SIZE], pos[2], positions[(MAX_PIECE_MOVES+1)*3];
+PyObject* __positionAllowedMoves(PyObject *self, PyObject *args){
+	int state[STATE_SIZE], position[2], positions[(MAX_PIECE_MOVES+1)*3];
 	int i;
-	PyObject *actions;
+	PyObject *actions, *pyState, *pyPosition;
+	pyState = PyTuple_GetItem(args, 0);
+	pyPosition = PyTuple_GetItem(args, 1);
 
 	stateFromPy(pyState, state);
-	pos[0] = (int)PyInt_AsLong(PyTuple_GetItem(position, PyInt_FromInt(0)));
-	pos[1] = (int)PyInt_AsLong(PyTuple_GetItem(position, PyInt_FromInt(1)));
+	position[0] = (int)PyInt_AsLong(PyTuple_GetItem(pyPosition, PyInt_FromInt(0)));
+	position[1] = (int)PyInt_AsLong(PyTuple_GetItem(pyPosition, PyInt_FromInt(1)));
 	for(i=0;i<MAX_PIECE_MOVES*3;i++){
 		positions[i]=-1;
 	}
@@ -660,4 +699,47 @@ PyObject* __positionAllowedMoves(PyObject* pyState, PyObject* position){
 	positionAllowedMoves(positions, state, pos);
 
 	return actionsToPy(positions);
+}
+
+PyObject* __init(PyObject *self, PyObject *args){
+	int state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*5];
+	int endIdx, reward;
+	PyObject *output;
+
+	initializeGame(state);
+	allActions(state, actions);
+	endIdx = checkGameEnd(state, actions, 0);
+	reward = endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+
+	output = PyTuple_New(4);
+	PyTuple_SetItem(output, 0, stateToPy(state));
+	PyTuple_SetItem(output, 1, actionsToPy(actions));
+	PyTuple_SetItem(output, 2, endIdx>=0?PyString_FromString(END_MESSAGE[endIdx]):PyBool_FromLong(0));
+	PyTuple_SetItem(output, 3, PyInt_FromInt(reward));
+	return output;
+}
+
+PyObject* __play(PyObject *self, PyObject *args){
+	int state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*5], action[5];
+	int endIdx, reward;
+	PyObject *output;
+	PyObject *pyState, *pyAction, *pyDuration;
+	pyState = PyTuple_GetItem(args, 0);
+	pyAction = PyTuple_GetItem(args, 1);
+	pyDuration = PyTuple_GetItem(args, 2);
+
+	stateFromPy(pyState, state);
+	actionFromPy(pyAction, action);
+	
+	performAction(state, action);
+	allActions(state, actions);
+	endIdx = checkGameEnd(state, actions, PyInt_AsLong(pyDuration));
+	reward = endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+
+	output = PyTuple_New(4);
+	PyTuple_SetItem(output, 0, stateToPy(state));
+	PyTuple_SetItem(output, 1, actionsToPy(actions));
+	PyTuple_SetItem(output, 2, endIdx>=0?PyString_FromString(END_MESSAGE[endIdx]):PyBool_FromLong(0));
+	PyTuple_SetItem(output, 3, PyInt_FromInt(reward));
+	return output;
 }
