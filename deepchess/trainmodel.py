@@ -10,6 +10,12 @@ import time
 import h5py
 
 from . import constants as CONST
+if CONST.ENGINE_TYPE == "PY":
+	from . import engine as EG
+elif CONST.ENGINE_TYPE == "C":
+	import cengine as EG
+else:
+	raise ImportError
 from . import search as SE
 from .models.models import *
 
@@ -18,30 +24,30 @@ def prepareModelInput(gameHistory):
 	allInput = []
 
 	for i in range(len(gameHistory)):
-		boardInput = np.ones((CONST.BOARD_HISTORY, 2, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * CONST.EMPTY
+		boardInput = np.ones((CONST.BOARD_HISTORY, 2, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * EG.EMPTY
 		for j in range(CONST.BOARD_HISTORY):
 			if i >= j:
 				boardInput[j] = np.array(gameHistory[i-j]["STATE"]["BOARD"], dtype=np.int8)
-		boardInput = boardInput.reshape((-1, CONST.BOARD_SIZE, CONST.BOARD_SIZE))
+		boardInput = boardInput.reshape((-1, EG.BOARD_SIZE, EG.BOARD_SIZE))
 
 		states = gameHistory[i]["STATE"]
 		
-		playerInput = np.ones((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8) * states["PLAYER"]
+		playerInput = np.ones((1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * states["PLAYER"]
 		
-		castlingStateInput = np.zeros((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8)
-		for player in [CONST.WHITE_IDX, CONST.BLACK_IDX]:
-			if states["CASTLING_AVAILABLE"][player][CONST.LEFT_CASTLE]:
-				for i in range(0, CONST.BOARD_SIZE//2):
-					castlingStateInput[0, CONST.KING_LINE[player], i] = 1
-			if states["CASTLING_AVAILABLE"][player][CONST.RIGHT_CASTLE]:
-				for i in range(CONST.BOARD_SIZE//2 + 1, CONST.BOARD_SIZE):
-					castlingStateInput[0, CONST.KING_LINE[player], i] = 1
+		castlingStateInput = np.zeros((1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
+			if states["CASTLING_AVAILABLE"][player][EG.LEFT_CASTLE]:
+				for i in range(0, EG.BOARD_SIZE//2):
+					castlingStateInput[0, EG.KING_LINE[player], i] = 1
+			if states["CASTLING_AVAILABLE"][player][EG.RIGHT_CASTLE]:
+				for i in range(EG.BOARD_SIZE//2 + 1, EG.BOARD_SIZE):
+					castlingStateInput[0, EG.KING_LINE[player], i] = 1
 		
-		enPassantStateInput = np.zeros((1, CONST.BOARD_SIZE, CONST.BOARD_SIZE), dtype=np.int8)
-		for player in [CONST.WHITE_IDX, CONST.BLACK_IDX]:
+		enPassantStateInput = np.zeros((1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
 			if states["EN_PASSANT"][player] >= 0:
-				movement = CONST.PAWN_DIRECTION[player] * CONST.PAWN_NORMAL_MOVE
-				pawnPos = np.array((CONST.KING_LINE[player], states["EN_PASSANT"][player]), dtype=np.int8)
+				movement = EG.PAWN_DIRECTION[player] * EG.PAWN_NORMAL_MOVE
+				pawnPos = np.array((EG.KING_LINE[player], states["EN_PASSANT"][player]), dtype=np.int8)
 				for _ in range(3):
 					pawnPos = pawnPos + movement
 					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1

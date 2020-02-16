@@ -360,7 +360,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
-					positions[++posI] = 0;
+					positions[++posI] = 99;
 				}
 			}
 			break;
@@ -371,7 +371,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
-					positions[++posI] = 0;
+					positions[++posI] = 99;
 				}
 			}
 			break;
@@ -382,7 +382,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
-					positions[++posI] = 0;
+					positions[++posI] = 99;
 				}
 			}
 			break;
@@ -393,7 +393,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				if(positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
-					positions[++posI] = 0;
+					positions[++posI] = 99;
 				}
 			}
 			break;
@@ -404,7 +404,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				if(positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
-					positions[++posI] = 0;
+					positions[++posI] = 99;
 				}
 			}
 			if(onlyFetchAttackSquares == 0){
@@ -412,13 +412,14 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					flag = 1;
 					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
-						y = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
+						y = CASTLE_MOVES(player, LEFT_CASTLE)[i][1];
 						if(getBoardBox(state, player, x, y) != EMPTY || getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 							flag = 0;break;
 						}
 					}
 					for(i=0;flag && i<3;i++){
-						pos[0]=x;pos[1]=y;
+						pos[0] = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
+						pos[1] = CASTLE_MOVES(player, LEFT_CASTLE)[i][1];
 						if(positionAttacked(state, pos, player)){
 							flag = 0;break;
 						}
@@ -426,20 +427,21 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					if(flag){
 						positions[++posI] = CASTLE_MOVES(player, LEFT_CASTLE)[2][0];
 						positions[++posI] = CASTLE_MOVES(player, LEFT_CASTLE)[2][1];
-						positions[++posI] = 0;
+						positions[++posI] = 99;
 					}
 				}
 				if(getCastling(state, player, RIGHT_CASTLE)){
 					flag = 1;
 					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
-						y = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
+						y = CASTLE_MOVES(player, RIGHT_CASTLE)[i][1];
 						if(getBoardBox(state, player, x, y) != EMPTY || getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 							flag = 0;break;
 						}
 					}
 					for(i=0;flag && i<3;i++){
-						pos[0]=x;pos[1]=y;
+						pos[0] = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
+						pos[1] = CASTLE_MOVES(player, RIGHT_CASTLE)[i][1];
 						if(positionAttacked(state, pos, player)){
 							flag = 0;break;
 						}
@@ -447,7 +449,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					if(flag){
 						positions[++posI] = CASTLE_MOVES(player, RIGHT_CASTLE)[2][0];
 						positions[++posI] = CASTLE_MOVES(player, RIGHT_CASTLE)[2][1];
-						positions[++posI] = 0;
+						positions[++posI] = 99;
 					}
 				}
 			}
@@ -458,7 +460,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				y = position[1] + PAWN_CAPTURE_MOVES[i][1];
 				temp = positionCheck(state, player, x, y);
 				if(temp>0){
-					if(onlyFetchAttackSquares==0 && x==KING_LINE(player)){
+					if(onlyFetchAttackSquares==0 && x==KING_LINE(OPPONENT(player))){
 						positions[++posI] = x;
 						positions[++posI] = y;
 						positions[++posI] = ROOK;
@@ -474,13 +476,13 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					}else{
 						positions[++posI] = x;
 						positions[++posI] = y;
-						positions[++posI] = 0;
+						positions[++posI] = 99;
 					}
-				}else if(temp==0 && getEnPassant(state, player)==y && getBoardBox(state, OPPONENT(player), position[0], y)==PAWN){
+				}else if(temp==0 && getEnPassant(state, OPPONENT(player))==y && getBoardBox(state, OPPONENT(player), position[0], y)==PAWN){
 					if(KING_LINE(OPPONENT(player)) + ((1+2)*PAWN_DIRECTION(OPPONENT(player))) == x){
 						positions[++posI] = x;
 						positions[++posI] = y;
-						positions[++posI] = 0;
+						positions[++posI] = 99;
 					}
 				}
 			}
@@ -488,7 +490,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				x = position[0] + PAWN_NORMAL_MOVE[0]*PAWN_DIRECTION(player);
 				y = position[1] + PAWN_NORMAL_MOVE[1];
 				if(positionCheck(state, player, x, y)==0){
-					if(y==KING_LINE(OPPONENT(player))){
+					if(x==KING_LINE(OPPONENT(player))){
 						positions[++posI] = x;
 						positions[++posI] = y;
 						positions[++posI] = ROOK;
@@ -504,14 +506,16 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					}else{
 						positions[++posI] = x;
 						positions[++posI] = y;
-						positions[++posI] = 0;
+						positions[++posI] = 99;
 
-						x = position[0] + PAWN_FIRST_MOVE[0]*PAWN_DIRECTION(player);
-						y = position[1] + PAWN_FIRST_MOVE[1];
-						if(positionCheck(state, player, x, y)==0){
-							positions[++posI] = x;
-							positions[++posI] = y;
-							positions[++posI] = 0;
+						if(position[0]==KING_LINE(player) + PAWN_DIRECTION(player)){
+							x = position[0] + PAWN_FIRST_MOVE[0]*PAWN_DIRECTION(player);
+							y = position[1] + PAWN_FIRST_MOVE[1];
+							if(positionCheck(state, player, x, y)==0){
+								positions[++posI] = x;
+								positions[++posI] = y;
+								positions[++posI] = 99;
+							}
 						}
 					}
 				}
@@ -662,10 +666,10 @@ static void performAction(int state[], int move[]){
 		case PAWN:
 			if(move[2]==KING_LINE(OPPONENT(player))){
 				setBoardBox(state, move[4], player, move[2], move[3]);
-			}else if(move[0]==(KING_LINE(player)+PAWN_DIRECTION(player)) && (move[0]-move[2]>1 || move[2]-move[0]>1)){
+			}else if(move[0]==(KING_LINE(player)+PAWN_DIRECTION(player)) && (move[0]-move[2]==2 || move[2]-move[0]==2)){
 				setEnPassant(state, move[1], player);
-			}else if(opponentPiece == EMPTY){
-				setBoardBox(state, EMPTY, player, move[0], move[4]);
+			}else if(opponentPiece == EMPTY && move[3]==getEnPassant(state, OPPONENT(player))){
+				setBoardBox(state, EMPTY, player, move[0], move[3]);
 			}
 			break;
 
@@ -824,5 +828,60 @@ static struct PyModuleDef cengineModule = {
 };
 
 PyMODINIT_FUNC PyInit_cengine(void){
-    return PyModule_Create(&cengineModule);
+	int i;
+	PyObject *module;
+	PyObject *promotions, *kingLine, *pawnDirection, *pawnDirection2, *pawnNormalMove;
+	module = PyModule_Create(&cengineModule);
+	PyModule_AddIntConstant(module, "BOARD_SIZE", BOARD_SIZE);
+	PyModule_AddIntConstant(module, "MAX_GAME_STEPS", MAX_GAME_STEPS);
+	PyModule_AddIntConstant(module, "WHITE_IDX", WHITE_IDX);
+	PyModule_AddIntConstant(module, "BLACK_IDX", BLACK_IDX);
+	PyModule_AddIntConstant(module, "EMPTY", EMPTY);
+	PyModule_AddIntConstant(module, "PAWN", PAWN);
+	PyModule_AddIntConstant(module, "BISHOP", BISHOP);
+	PyModule_AddIntConstant(module, "KNIGHT", KNIGHT);
+	PyModule_AddIntConstant(module, "ROOK", ROOK);
+	PyModule_AddIntConstant(module, "QUEEN", QUEEN);
+	PyModule_AddIntConstant(module, "KING", KING);
+	PyModule_AddIntConstant(module, "LEFT_CASTLE", LEFT_CASTLE);
+	PyModule_AddIntConstant(module, "RIGHT_CASTLE", RIGHT_CASTLE);
+
+
+	promotions = PyTuple_New(LEN(PROMOTIONS));
+	for(i=0; i<LEN(PROMOTIONS); i++){
+		PyTuple_SetItem(promotions, i, PyLong_FromLong(PROMOTIONS[i]));
+	}
+	PyModule_AddObject(module, "PROMOTIONS", promotions);
+
+
+	pawnNormalMove = PyTuple_New(LEN(PAWN_NORMAL_MOVE));
+	for(i=0; i<LEN(PAWN_NORMAL_MOVE); i++){
+		PyTuple_SetItem(pawnNormalMove, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
+	}
+	PyModule_AddObject(module, "PAWN_NORMAL_MOVE", pawnNormalMove);
+	
+
+	kingLine = PyDict_New();
+	PyDict_SetItem(kingLine, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(0));
+	PyDict_SetItem(kingLine, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(BOARD_SIZE-1));
+	PyModule_AddObject(module, "KING_LINE", kingLine);
+	
+
+	pawnDirection = PyDict_New();
+	pawnDirection2 = PyTuple_New(LEN(PAWN_NORMAL_MOVE));
+	PyTuple_SetItem(pawnNormalMove, 0, PyLong_FromLong(PAWN_DIRECTION(WHITE_IDX)));
+	for(i=1; i<LEN(PAWN_NORMAL_MOVE); i++){
+		PyTuple_SetItem(pawnNormalMove, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
+	}
+	PyDict_SetItem(pawnDirection, PyLong_FromLong(WHITE_IDX), pawnDirection2);
+	pawnDirection2 = PyTuple_New(LEN(PAWN_NORMAL_MOVE));
+	PyTuple_SetItem(pawnNormalMove, 0, PyLong_FromLong(PAWN_DIRECTION(BLACK_IDX)));
+	for(i=1; i<LEN(PAWN_NORMAL_MOVE); i++){
+		PyTuple_SetItem(pawnNormalMove, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
+	}
+	PyDict_SetItem(pawnDirection, PyLong_FromLong(BLACK_IDX), pawnDirection2);
+	PyModule_AddObject(module, "PAWN_DIRECTION", pawnDirection);
+
+
+    return module;
 }

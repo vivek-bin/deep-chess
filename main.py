@@ -26,7 +26,7 @@ def main():
 
 	if playFlag:
 		from deepchess.play import playGame
-		for _ in range(1):
+		for _ in range(10):
 			end, history = playGame()
 			print(CONST.LAPSED_TIME())
 

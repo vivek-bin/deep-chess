@@ -27,55 +27,9 @@ class HiddenPrints:
 		sys.stderr = self._original_stderr
 
 # game constants
+ENGINE_TYPE = "C"		#C or PY
 DISPLAY_TEXT_BOARD = True
-DISPLAY_TK_BOARD = False
-BOARD_SIZE = 8
-MAX_MOVES = 300
-WHITE_IDX = 0
-BLACK_IDX = 1
-OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
-SCORING = {BLACK_IDX:-1, WHITE_IDX:1}
-
-EMPTY = 0
-PAWN = 1
-BISHOP = 2
-KNIGHT = 3
-ROOK = 4
-QUEEN = 5
-KING = 6
-PROMOTIONS = [QUEEN, ROOK, KNIGHT, BISHOP]
-
-MOVE_DIRECTIONS = {}
-MOVE_DIRECTIONS[BISHOP] = [(1, 1), (1, -1), (-1, -1), (-1, 1)]
-MOVE_DIRECTIONS[ROOK] = [(1, 0), (-1, 0), (0, -1), (0, 1)]
-MOVE_DIRECTIONS[QUEEN] = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
-
-KNIGHT_MOVES = [(1, 2), (2, 1), (-1, 2), (2, -1), (1, -2), (-2, 1), (-1, -2), (-2, -1)]
-
-KING_MOVES = MOVE_DIRECTIONS[BISHOP] + MOVE_DIRECTIONS[ROOK]
-KING_LINE = {WHITE_IDX:0, BLACK_IDX:BOARD_SIZE - 1}
-LEFT_CASTLE = 0
-RIGHT_CASTLE = 1
-KING_CASTLE_STEPS = {WHITE_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}, BLACK_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}}
-for player in [WHITE_IDX, BLACK_IDX]:
-	for i in range(3):
-		KING_CASTLE_STEPS[player][LEFT_CASTLE].append((KING_LINE[player], BOARD_SIZE//2 - i))
-		KING_CASTLE_STEPS[player][RIGHT_CASTLE].append((KING_LINE[player], BOARD_SIZE//2 + i))
-
-PAWN_CAPTURE_MOVES = [(1, 1), (1, -1)]
-PAWN_NORMAL_MOVE = (1, 0)
-PAWN_FIRST_MOVE = (2, 0)
-PAWN_DIRECTION = {WHITE_IDX:(1, 1), BLACK_IDX:(-1, 1)}
-
-MAX_POSSIBLE_MOVES = BOARD_SIZE**4 + 1 + len(PROMOTIONS) * BOARD_SIZE**2
-
-def ADDL(l1, l2):
-	assert len(l1) == len(l2)
-	return tuple(l1[i]+l2[i] for i in range(len(l1)))
-
-def MULTIPLYL(l1, l2):
-	assert len(l1) == len(l2)
-	return tuple(l1[i]*l2[i] for i in range(len(l1)))
+DISPLAY_TK_BOARD = True
 
 ###paths
 GOOGLE_DRIVE_PATH = "/content/drive/My Drive/"
