@@ -2,7 +2,8 @@ import random
 from . import constants as CONST
 import tkinter as tk
 from PIL import Image, ImageTk
-from . import engine as EG
+#from . import engine as EG
+import cengine as EG
 
 def printBoard(state):
 	if CONST.DISPLAY_TEXT_BOARD:
@@ -27,7 +28,7 @@ def playGame():
 
 		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
 		state = nextState
-		printBoard(state)
+		#printBoard(state)
 
 	print(end, len(history))
 	printBoard(state)
