@@ -86,7 +86,7 @@ const int CASTLE_WHITE_RIGHT[][2] = {{0, BOARD_SIZE/2}, {0, BOARD_SIZE/2 + 1}, {
 const int CASTLE_BLACK_LEFT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 2}};
 const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 2}};
 
-const char END_MESSAGE[4][15] = {"max_steps", "only_kings", "stalemate", "loss"};
+const char END_MESSAGE[4][25] = {"draw,max_steps", "draw,only_kings", "draw,stalemate", "loss"};
 
 
 
@@ -360,7 +360,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
-					positions[++posI] = 99;
+					positions[++posI] = 0;
 				}
 			}
 			break;
@@ -371,7 +371,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
-					positions[++posI] = 99;
+					positions[++posI] = 0;
 				}
 			}
 			break;
@@ -382,7 +382,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
-					positions[++posI] = 99;
+					positions[++posI] = 0;
 				}
 			}
 			break;
@@ -393,7 +393,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				if(positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
-					positions[++posI] = 99;
+					positions[++posI] = 0;
 				}
 			}
 			break;
@@ -404,7 +404,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 				if(positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
-					positions[++posI] = 99;
+					positions[++posI] = 0;
 				}
 			}
 			if(onlyFetchAttackSquares == 0){
@@ -427,7 +427,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					if(flag){
 						positions[++posI] = CASTLE_MOVES(player, LEFT_CASTLE)[2][0];
 						positions[++posI] = CASTLE_MOVES(player, LEFT_CASTLE)[2][1];
-						positions[++posI] = 99;
+						positions[++posI] = 0;
 					}
 				}
 				if(getCastling(state, player, RIGHT_CASTLE)){
@@ -449,7 +449,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					if(flag){
 						positions[++posI] = CASTLE_MOVES(player, RIGHT_CASTLE)[2][0];
 						positions[++posI] = CASTLE_MOVES(player, RIGHT_CASTLE)[2][1];
-						positions[++posI] = 99;
+						positions[++posI] = 0;
 					}
 				}
 			}
@@ -476,13 +476,13 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					}else{
 						positions[++posI] = x;
 						positions[++posI] = y;
-						positions[++posI] = 99;
+						positions[++posI] = 0;
 					}
 				}else if(temp==0 && getEnPassant(state, OPPONENT(player))==y && getBoardBox(state, OPPONENT(player), position[0], y)==PAWN){
-					if(KING_LINE(OPPONENT(player)) + ((1+2)*PAWN_DIRECTION(OPPONENT(player))) == x){
+					if(KING_LINE(OPPONENT(player)) + ((1+2)*PAWN_DIRECTION(OPPONENT(player))) == position[0]){
 						positions[++posI] = x;
 						positions[++posI] = y;
-						positions[++posI] = 99;
+						positions[++posI] = 0;
 					}
 				}
 			}
@@ -506,7 +506,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 					}else{
 						positions[++posI] = x;
 						positions[++posI] = y;
-						positions[++posI] = 99;
+						positions[++posI] = 0;
 
 						if(position[0]==KING_LINE(player) + PAWN_DIRECTION(player)){
 							x = position[0] + PAWN_FIRST_MOVE[0]*PAWN_DIRECTION(player);
@@ -514,7 +514,7 @@ static void positionMoves(int positions[], int state[], int position[], int play
 							if(positionCheck(state, player, x, y)==0){
 								positions[++posI] = x;
 								positions[++posI] = y;
-								positions[++posI] = 99;
+								positions[++posI] = 0;
 							}
 						}
 					}
@@ -674,10 +674,10 @@ static void performAction(int state[], int move[]){
 			break;
 
 		case ROOK:
-			if(move[0] == 0 && getCastling(state, player, LEFT_CASTLE)){
+			if(move[1] == 0 && getCastling(state, player, LEFT_CASTLE)){
 				setCastling(state, 0, player, LEFT_CASTLE);
 			}
-			if(move[0] == BOARD_SIZE-1 && getCastling(state, player, RIGHT_CASTLE)){
+			if(move[1] == BOARD_SIZE-1 && getCastling(state, player, RIGHT_CASTLE)){
 				setCastling(state, 0, player, RIGHT_CASTLE);
 			}
 			break;
@@ -701,7 +701,7 @@ static int checkGameEnd(int state[], int actions[], int duration){
 		for(i=0; i<2; i++)
 			for(j=0; j<BOARD_SIZE; j++)
 				for(k=0; k<BOARD_SIZE; k++)
-					if(getBoardBox(state, i, j, k) != EMPTY || getBoardBox(state, i, j, k) != KING)
+					if(getBoardBox(state, i, j, k) != EMPTY && getBoardBox(state, i, j, k) != KING)
 						flag = 0;
 		if(flag){
 			endIdx = 1;

@@ -80,7 +80,7 @@ def allActions(state):
 		for j in range(BOARD_SIZE):
 			actions.extend(positionAllowedMoves(state, (i, j)))
 	
-	return actions
+	return tuple(actions)
 
 def kingAttacked(state, player):
 	kingPos = None
@@ -92,7 +92,6 @@ def kingAttacked(state, player):
 		if kingPos is not None:
 			break
 	else:
-		printBoard(state)
 		raise Exception		# no king found
 
 	return positionAttacked(state, kingPos, player)
@@ -231,7 +230,7 @@ def performAction(state, move):
 			newBoard[player][newPos[0]][newPos[1]] = newPos[2]			#promotion
 		elif currentPos[0] == pawnLine and abs(currentPos[0] - newPos[0]) > 1:
 			newState["EN_PASSANT"][player] = newPos[1]
-		elif opponentPiece == EMPTY:			#was en-passant
+		elif opponentPiece == EMPTY and newPos[1]==newState["EN_PASSANT"][OPPONENT[player]]:			#was en-passant
 			newBoard[OPPONENT[player]][currentPos[0]][newPos[1]] = EMPTY
 	
 	elif piece == ROOK:
@@ -293,17 +292,17 @@ def positionCheck(state, position, movement, player):
 def checkGameEnd(state, numActions, duration):
 	reward = 0
 	end = False
-	if duration >= MAX_GAME_STEPS:
-		end = "draw, moves exceeded!"
+	if duration > MAX_GAME_STEPS:
+		end = "draw,max_steps"
 	elif not [box for playerBoard in state["BOARD"] for row in playerBoard for box in row if box not in (EMPTY, KING)]:
-		end = "draw, only kings!"
+		end = "draw,only_kings"
 	elif numActions == 0:
 		if kingAttacked(state, state["PLAYER"]):
 			winner = OPPONENT[state["PLAYER"]]
 			reward = SCORING[winner]
-			end = "winner : " + str(winner)
+			end = "loss"
 		else:
-			end = "draw, stalemate!"
+			end = "draw,stalemate"
 	
 	return end, reward
 
