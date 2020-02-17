@@ -29,7 +29,7 @@ class HiddenPrints:
 # game constants
 ENGINE_TYPE = "C"		#C or PY
 DISPLAY_TEXT_BOARD = True
-DISPLAY_TK_BOARD = True
+DISPLAY_TK_BOARD = False
 
 ###paths
 GOOGLE_DRIVE_PATH = "/content/drive/My Drive/"
