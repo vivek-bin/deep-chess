@@ -669,7 +669,7 @@ static void performAction(int state[], int move[]){
 			}else if(move[0]==(KING_LINE(player)+PAWN_DIRECTION(player)) && (move[0]-move[2]==2 || move[2]-move[0]==2)){
 				setEnPassant(state, move[1], player);
 			}else if(opponentPiece == EMPTY && move[3]==getEnPassant(state, OPPONENT(player))){
-				setBoardBox(state, EMPTY, player, move[0], move[3]);
+				setBoardBox(state, EMPTY, OPPONENT(player), move[0], move[3]);
 			}
 			break;
 
@@ -811,11 +811,42 @@ static PyObject* __play(PyObject *self, PyObject *args){
 	return output;
 }
 
+
+static PyObject* __playRandomTillEnd(PyObject *self, PyObject *args){
+	int state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*5], *action;
+	int endIdx, reward, i;
+	PyObject *output;
+	PyObject *pyState;
+	pyState = PyTuple_GetItem(args, 0);
+
+	stateFromPy(pyState, state);
+	allActions(state, actions);
+	endIdx = checkGameEnd(state, actions, 0);
+	
+	while(endIdx==-1){
+		for(i=0; actions[i*5]!=-1; i++);
+		action = &actions[(rand()%i)*5];
+		
+		performAction(state, action);
+		allActions(state, actions);
+		endIdx = checkGameEnd(state, actions, 0);
+	}
+	reward = endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+
+	output = PyTuple_New(4);
+	PyTuple_SetItem(output, 0, stateToPy(state));
+	PyTuple_SetItem(output, 1, actionsToPy(actions));
+	PyTuple_SetItem(output, 2, (endIdx>=0)?PyUnicode_FromString(END_MESSAGE[endIdx]):PyBool_FromLong(0));
+	PyTuple_SetItem(output, 3, PyLong_FromLong(reward));
+	return output;
+}
+
 static PyMethodDef cengineMethods[] = {
     {"kingAttacked",  __kingAttacked, METH_VARARGS, "Check if the current players king is under check"},
     {"positionAllowedMoves",  __positionAllowedMoves, METH_VARARGS, "Get all possible positions from the given box."},
     {"init",  __init, METH_VARARGS, "Initialize the game."},
     {"play",  __play, METH_VARARGS, "Play a move in the game."},
+    {"playRandomTillEnd",  __playRandomTillEnd, METH_VARARGS, "Play a given state till game end with random;y selected moves."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

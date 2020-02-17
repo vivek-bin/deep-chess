@@ -29,17 +29,18 @@ def playGame():
 	history = []
 
 	state, actions, end, reward = EG.init()
+	#state, actions, end, reward = EG.playRandomTillEnd(state)
 	while not end:
 		if moveList:
-			action = moveList[0]
-			moveList.pop(0)
+			action = moveList.pop(0)
 		else:
 			action = actions[int(random.random()*len(actions))]
 		nextState, actions, end, reward = EG.play(state, action, len(history))
 
 		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
 		state = nextState
-		printBoard(state)
+		if CONST.PLAY_MOVES:
+			printBoard(state)
 
 	print(end, len(history))
 	printBoard(state)
@@ -59,6 +60,7 @@ def displayTk(state):
 	attackImgTk = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "attack.png"))
 	moveImgTk = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "move.png"))
 	pieceImagesTk = {EG.WHITE_IDX:{}, EG.BLACK_IDX:{}}
+	promotionImagesTk = {EG.WHITE_IDX:{}, EG.BLACK_IDX:{}}
 	for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
 		pieceImagesTk[player][EG.PAWN] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "pawn_" + str(player) + ".png"))
 		pieceImagesTk[player][EG.BISHOP] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "bishop_" + str(player) + ".png"))
@@ -67,19 +69,32 @@ def displayTk(state):
 		pieceImagesTk[player][EG.QUEEN] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "queen_" + str(player) + ".png"))
 		pieceImagesTk[player][EG.KING] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "king_" + str(player) + ".png"))
 
+		promotionImagesTk[player][EG.BISHOP] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "pro_bishop_" + str(player) + ".png"))
+		promotionImagesTk[player][EG.KNIGHT] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "pro_knight_" + str(player) + ".png"))
+		promotionImagesTk[player][EG.ROOK] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "pro_rook_" + str(player) + ".png"))
+		promotionImagesTk[player][EG.QUEEN] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "pro_queen_" + str(player) + ".png"))
 
-	def onClick(event, state, moveImgTk):
+
+	def onClick(event, state, moveImgTk, promotionImagesTk):
 		canvas = event.widget
 		canvas.delete("move")
 
 		j = event.x // CONST.IMAGE_SIZE
 		i = event.y // CONST.IMAGE_SIZE
 
-		for _, box in EG.positionAllowedMoves(state, (i,j)):
-			canvas.create_image(box[1]*CONST.IMAGE_SIZE, box[0]*CONST.IMAGE_SIZE, image=moveImgTk, anchor=tk.NW, tags=("move", str(i)+","+str(j)))
+		for startBox, endBox in EG.positionAllowedMoves(state, (i,j)):
+			moveStr = ",".join([str(idx) for idx in (startBox + endBox)])
+			if len(endBox)==2:
+				canvas.create_image(endBox[1]*CONST.IMAGE_SIZE, endBox[0]*CONST.IMAGE_SIZE, image=moveImgTk, anchor=tk.NW, tags=("move", moveStr))
+			elif len(endBox)==3:
+				xOffset = CONST.IMAGE_SIZE//2 if endBox[2] in (EG.BISHOP, EG.KNIGHT) else 0
+				yOffset = CONST.IMAGE_SIZE//2 if endBox[2] in (EG.ROOK, EG.KNIGHT) else 0
+				canvas.create_image(endBox[1]*CONST.IMAGE_SIZE + xOffset, endBox[0]*CONST.IMAGE_SIZE + yOffset, image=promotionImagesTk[state["PLAYER"]][endBox[2]], anchor=tk.NW, tags=("move", moveStr))
+			else:
+				print("too many values in end position!")
 
-	canvas.tag_bind("piece", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk: onClick(event, state, moveImgTk))
-	canvas.tag_bind("board", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk: onClick(event, state, moveImgTk))
+	canvas.tag_bind("piece", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk, promotionImagesTk=promotionImagesTk: onClick(event, state, moveImgTk, promotionImagesTk))
+	canvas.tag_bind("board", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk, promotionImagesTk=promotionImagesTk: onClick(event, state, moveImgTk, promotionImagesTk))
 
 	def onClickMove(event, state, root):
 		global moveList
@@ -90,12 +105,9 @@ def displayTk(state):
 		ids = [id for id in ids if "move" in canvas.gettags(id)]
 		moveId = ids[0]
 
-		originalBox = [tag for tag in list(canvas.gettags(moveId)) if "," in tag][0]
-		originalBox = [int(x) for x in originalBox.split(",")]
-
-		finalBox = [event.y // CONST.IMAGE_SIZE, event.x // CONST.IMAGE_SIZE]
-
-		move = (originalBox, finalBox)
+		moveTag = [tag for tag in list(canvas.gettags(moveId)) if "," in tag][0]
+		moveIdx = tuple(int(x) for x in moveTag.split(","))
+		move = (moveIdx[:2], moveIdx[2:])
 		moveList.append(move)
 		root.destroy()
 

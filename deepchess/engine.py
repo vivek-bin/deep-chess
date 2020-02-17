@@ -1,4 +1,5 @@
 from copy import deepcopy
+import random
 
 BOARD_SIZE = 8
 MAX_GAME_STEPS = 300
@@ -319,4 +320,17 @@ def play(state, action, duration=0):
 	end, reward = checkGameEnd(nextState, len(actions), duration)
 
 	return nextState, actions, end, reward
+
+def playRandomTillEnd(state):
+	actions = allActions(state)
+	end, reward = checkGameEnd(state, len(actions), duration)
+	
+	while not end:
+		action = random.choice(actions)
+		
+		state = performAction(state, action)
+		actions = allActions(state)
+		end, reward = checkGameEnd(state, len(actions), duration)
+
+	return state, actions, end, reward
 
