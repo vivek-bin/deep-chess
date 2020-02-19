@@ -861,7 +861,7 @@ static struct PyModuleDef cengineModule = {
 PyMODINIT_FUNC PyInit_cengine(void){
 	int i;
 	PyObject *module;
-	PyObject *promotions, *kingLine, *pawnDirection, *pawnDirection2, *pawnNormalMove;
+	PyObject *promotions, *kingLine, *pawnDirection, *pawnDirection2, *pawnNormalMove, *opponent;
 	module = PyModule_Create(&cengineModule);
 	PyModule_AddIntConstant(module, "BOARD_SIZE", BOARD_SIZE);
 	PyModule_AddIntConstant(module, "MAX_GAME_STEPS", MAX_GAME_STEPS);
@@ -912,6 +912,12 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	}
 	PyDict_SetItem(pawnDirection, PyLong_FromLong(BLACK_IDX), pawnDirection2);
 	PyModule_AddObject(module, "PAWN_DIRECTION", pawnDirection);
+	
+
+	opponent = PyDict_New();
+	PyDict_SetItem(opponent, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(OPPONENT(WHITE_IDX)));
+	PyDict_SetItem(opponent, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(OPPONENT(BLACK_IDX)));
+	PyModule_AddObject(module, "OPPONENT", opponent);
 
 
     return module;

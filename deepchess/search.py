@@ -90,36 +90,85 @@ def stateFromIndex(idx):
 
 
 class Node():
-    def __init__(self, parent=None, initialState=None):
-        self.parent = parent
-        self.children = []
-        self.visits = 0
-        self.state = initialState
-        self.wins = 0
-        self.losses = 0
+	def __init__(self, parent=None, previousAction=None, state=None, actions=None, end=None, reward=None):
+		self.parent = parent
+		self.previousAction = previousAction
+		self.state = state
+		self.actions = actions
+		self.end = end
+		self.reward = reward
+		self.children = []
+		self.visits = 0
+		self.wins = 0
+		self.losses = 0
+		self.draws = 0
 
-    def addChild(self, child):
-        self.children.append(child)
+	def bestChild(self):
+		best = self.children[0] if self.children else None
+		bestValue = best.value()
+		for child in self.children:
+			childValue = child.value()
+			if childValue > bestValue:
+				best = child
+				bestValue = childValue
+		return best
 
-    def bestChild(self):
-        best = self.children[0] if self.children else None
-        for child in self.children:
-            if child.value() > best.value():
-                best = child
-        
-        return best
+	def value(self):
+		explore = math.sqrt(math.log(self.parent.visits)/self.visits) if self.parent else 0
 
-    def value(self):
-        explore = math.sqrt(math.log(self.parent.visits)/self.visits) if self.parent else 0
-        mean = self.wins/self.visits
+		return self.getNodeStateValue() + CONST.MC_EXPLORATION_CONST * explore
 
-        return mean + CONST.MC_EXPLORATION_CONST * explore
+	def getNodeStateValue(self):
+		stateValue = self.wins/self.visits #chessModel.evaluate()
+		return stateValue
+	
+	def incrementCounters(self, reward):
+		self.visits = self.visits + 1
 
-    
-class Tree():
-    def __init__(self, initialState):
-        self.root = Node(None, initialState)
-        self.current = self.root
-        self.stateMap = {initialState:self.root}
+		if reward > 0:
+			self.wins = self.wins + 1
+		elif reward < 0:
+			self.losses = self.losses + 1
+		else:
+			self.draws = self.draws + 1
+	
 
-        
+
+def searchTree():
+	state, actions, end, reward = EG.init()
+	root = Node(state=state, actions=actions, end=end, reward=reward)
+
+	for i in range(CONST.NUM_SIMULATIONS):
+		node = getToLeaf(root)
+		expandLeaf(node)
+	
+	return root
+
+
+def expandLeaf(node):
+	bestChildNode = node
+	reward = node.reward
+
+	if node.actions:
+		for action in node.actions:
+			nextState, actions, end, reward = EG.play(node.state, action, 0)
+			child = Node(parent=node, previousAction=action, state=nextState, actions=actions, end=end, reward=reward)
+			node.children.append(child)
+		bestChildNode = node.bestChild()
+		nextState, actions, end, reward = EG.playRandomTillEnd(bestChildNode.state)
+
+	backPropogateNode(bestChildNode, reward)
+
+def getToLeaf(node):
+	if node.children:
+		return getToLeaf(node.bestChild())
+	else:
+		return node
+	
+def backPropogateNode(node, reward):
+	node.incrementCounters(reward)
+	parent = node.parent
+	while(parent):
+		parent.incrementCounters(reward)
+		parent = parent.parent
+	
