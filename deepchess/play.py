@@ -8,6 +8,8 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
+from . import search as SE
+import gc
 
 moveList = []
 
@@ -33,11 +35,18 @@ def playGame():
 	while not end:
 		if moveList:
 			action = moveList.pop(0)
+			statePolicy = None
+			stateValue = None
+		elif CONST.MC_SEARCH_MOVE:
+			action, stateValue, statePolicy = SE.searchTree(state, actions, end, reward, history)
+			gc.collect()
 		else:
 			action = actions[int(random.random()*len(actions))]
+			statePolicy = None
+			stateValue = None
 		nextState, actions, end, reward = EG.play(state, action, len(history))
 
-		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
+		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward, STATE_VALUE=stateValue, STATE_POLICY=statePolicy))
 		state = nextState
 		if CONST.PLAY_MOVES:
 			printBoard(state)
@@ -123,6 +132,9 @@ def displayTk(state):
 				box = state["BOARD"][player][i][j]
 				if box != EG.EMPTY:
 					canvas.create_image(j*CONST.IMAGE_SIZE, i*CONST.IMAGE_SIZE, image=pieceImagesTk[player][box], anchor=tk.NW, tags="piece")
+	kingUnderCheck = EG.kingAttacked(state)
+	if kingUnderCheck:
+		canvas.create_image(kingUnderCheck[1]*CONST.IMAGE_SIZE, kingUnderCheck[0]*CONST.IMAGE_SIZE, image=attackImgTk, anchor=tk.NW)
 
 	root.mainloop()
 

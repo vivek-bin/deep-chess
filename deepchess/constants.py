@@ -28,9 +28,11 @@ class HiddenPrints:
 
 # game constants
 ENGINE_TYPE = "C"		#C or PY
-DISPLAY_TEXT_BOARD = False
+MC_SEARCH_MOVE = True
+NUM_SIMULATIONS = 1000
+DISPLAY_TEXT_BOARD = True
 DISPLAY_TK_BOARD = False
-PLAY_MOVES = False
+PLAY_MOVES = True
 
 ###paths
 GOOGLE_DRIVE_PATH = "/content/drive/My Drive/"
@@ -59,7 +61,6 @@ NUM_FILTERS = 64
 CONV_SIZE = 3
 
 ###training parameters
-NUM_SIMULATIONS = 500
 MC_EXPLORATION_CONST = 0.5
 DATA_PARTITIONS = 1000
 TRAIN_SPLIT_PCT = 0.90

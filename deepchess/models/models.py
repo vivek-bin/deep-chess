@@ -4,7 +4,7 @@ from tensorflow.keras import layers
 
 from .. import constants as CONST
 
-def getModelUnit(inputTensor, filters, size):
+def joinModelUnit(inputTensor, filters, size):
     x = layers.Conv2D(filters, size, padding="same")(inputTensor)
     x = layers.BatchNormalization()(x)
     x = layers.Activation(CONST.DENSE_ACTIVATION)(x)
@@ -30,9 +30,9 @@ def resNetChessModel():
     x = layers.Concatenate()([reformBoard, inputState])
     x = layers.Conv2D(CONST.NUM_FILTERS, size=CONST.CONV_SIZE, padding="same")(x)
     for _ in range(CONST.MODEL_DEPTH//2):
-        x = getModelUnit(x, filters=CONST.NUM_FILTERS, size=CONST.CONV_SIZE)
+        x = joinModelUnit(x, filters=CONST.NUM_FILTERS, size=CONST.CONV_SIZE)
 
-    boardValue = layers.Dense(1)(x)
+    boardValue = layers.Dense(1, activation="tanh")(x)
     moveProbabilities = layers.Dense(CONST.MAX_POSSIBLE_MOVES, activation="softmax")(x)
 
     model = tf.keras.Model(inputs=[inputBoard, inputState], outputs=[boardValue, moveProbabilities])
