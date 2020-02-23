@@ -28,6 +28,7 @@
 #define IS_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?1:0)
 #define IS_NOT_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?0:1)
 #define CASTLE_MOVES(p, s) (p==WHITE_IDX?(s==LEFT_CASTLE?CASTLE_WHITE_LEFT:CASTLE_WHITE_RIGHT):(s==LEFT_CASTLE?CASTLE_BLACK_LEFT:CASTLE_BLACK_RIGHT))
+#define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
 
 static void copyState(int state[], int blankState[]);
 static int getBoardBox(int state[], int player, int row, int col);
@@ -67,7 +68,7 @@ PyMODINIT_FUNC PyInit_cengine(void);
 
 const int PIECES[] = {PAWN, BISHOP, KNIGHT, ROOK, QUEEN, KING};
 const int PROMOTIONS[] = {QUEEN, ROOK, KNIGHT, BISHOP};
-const int TOP_LINE[] = {ROOK, KNIGHT, BISHOP, QUEEN, KING, BISHOP, KNIGHT, ROOK};
+const int TOP_LINE[] = {ROOK, KNIGHT, BISHOP, KING, QUEEN, BISHOP, KNIGHT, ROOK};
 
 const int MOVE_DIRECTIONS_BISHOP[][2] = {{1, 1}, {1, -1}, {-1, -1}, {-1, 1}};
 const int MOVE_DIRECTIONS_ROOK[][2] = {{1, 0}, {-1, 0}, {0, -1}, {0, 1}};
@@ -80,11 +81,11 @@ const int PAWN_CAPTURE_MOVES[][2] = {{1, 1}, {1, -1}};
 const int PAWN_NORMAL_MOVE[2] = {1, 0};
 const int PAWN_FIRST_MOVE[2] = {2, 0};
 
-const int CASTLE_WHITE_LEFT[][2] = {{0, BOARD_SIZE/2}, {0, BOARD_SIZE/2 - 1}, {0, BOARD_SIZE/2 - 2}};
-const int CASTLE_WHITE_RIGHT[][2] = {{0, BOARD_SIZE/2}, {0, BOARD_SIZE/2 + 1}, {0, BOARD_SIZE/2 + 2}};
+const int CASTLE_WHITE_LEFT[][2] = {{0, BOARD_SIZE/2 - 1}, {0, BOARD_SIZE/2 - 2}, {0, BOARD_SIZE/2 - 3}};
+const int CASTLE_WHITE_RIGHT[][2] = {{0, BOARD_SIZE/2 - 1}, {0, BOARD_SIZE/2 + 0}, {0, BOARD_SIZE/2 + 1}};
 
-const int CASTLE_BLACK_LEFT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 2}};
-const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 2}};
+const int CASTLE_BLACK_LEFT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 2}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 3}};
+const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 0}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 1}};
 
 const char END_MESSAGE[4][25] = {"draw,max_steps", "draw,only_kings", "draw,stalemate", "loss"};
 
@@ -284,7 +285,7 @@ static void initializeCastling(int state[]){
 	setCastling(state, 0, WHITE_IDX, RIGHT_CASTLE);
 	setCastling(state, 0, BLACK_IDX, LEFT_CASTLE);
 	setCastling(state, 0, BLACK_IDX, RIGHT_CASTLE);
-	if(getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), BOARD_SIZE/2) == KING){
+	if(getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), CASTLE_MOVES(WHITE_IDX, LEFT_CASTLE)[0][1]) == KING){
 		if(getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), 0) == ROOK){
 			setCastling(state, 1, WHITE_IDX, LEFT_CASTLE);
 		}
@@ -292,7 +293,7 @@ static void initializeCastling(int state[]){
 			setCastling(state, 1, WHITE_IDX, RIGHT_CASTLE);
 		}
 	}
-	if(getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), BOARD_SIZE/2) == KING){
+	if(getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), CASTLE_MOVES(BLACK_IDX, LEFT_CASTLE)[0][1]) == KING){
 		if(getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), 0) == ROOK){
 			setCastling(state, 1, BLACK_IDX, LEFT_CASTLE);
 		}
@@ -861,7 +862,7 @@ static struct PyModuleDef cengineModule = {
 PyMODINIT_FUNC PyInit_cengine(void){
 	int i;
 	PyObject *module;
-	PyObject *promotions, *kingLine, *pawnDirection, *pawnDirection2, *pawnNormalMove, *opponent;
+	PyObject *promotions, *kingLine, *pawnDirection, *pawnDirection2, *pawnNormalMove, *opponent, *scoring;
 	module = PyModule_Create(&cengineModule);
 	PyModule_AddIntConstant(module, "BOARD_SIZE", BOARD_SIZE);
 	PyModule_AddIntConstant(module, "MAX_GAME_STEPS", MAX_GAME_STEPS);
@@ -876,6 +877,7 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	PyModule_AddIntConstant(module, "KING", KING);
 	PyModule_AddIntConstant(module, "LEFT_CASTLE", LEFT_CASTLE);
 	PyModule_AddIntConstant(module, "RIGHT_CASTLE", RIGHT_CASTLE);
+	PyModule_AddIntConstant(module, "MAX_POSSIBLE_MOVES", MAX_POSSIBLE_MOVES);
 
 
 	promotions = PyTuple_New(LEN(PROMOTIONS));
@@ -900,15 +902,15 @@ PyMODINIT_FUNC PyInit_cengine(void){
 
 	pawnDirection = PyDict_New();
 	pawnDirection2 = PyTuple_New(LEN(PAWN_NORMAL_MOVE));
-	PyTuple_SetItem(pawnNormalMove, 0, PyLong_FromLong(PAWN_DIRECTION(WHITE_IDX)));
+	PyTuple_SetItem(pawnDirection2, 0, PyLong_FromLong(PAWN_DIRECTION(WHITE_IDX)));
 	for(i=1; i<LEN(PAWN_NORMAL_MOVE); i++){
-		PyTuple_SetItem(pawnNormalMove, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
+		PyTuple_SetItem(pawnDirection2, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
 	}
 	PyDict_SetItem(pawnDirection, PyLong_FromLong(WHITE_IDX), pawnDirection2);
 	pawnDirection2 = PyTuple_New(LEN(PAWN_NORMAL_MOVE));
-	PyTuple_SetItem(pawnNormalMove, 0, PyLong_FromLong(PAWN_DIRECTION(BLACK_IDX)));
+	PyTuple_SetItem(pawnDirection2, 0, PyLong_FromLong(PAWN_DIRECTION(BLACK_IDX)));
 	for(i=1; i<LEN(PAWN_NORMAL_MOVE); i++){
-		PyTuple_SetItem(pawnNormalMove, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
+		PyTuple_SetItem(pawnDirection2, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
 	}
 	PyDict_SetItem(pawnDirection, PyLong_FromLong(BLACK_IDX), pawnDirection2);
 	PyModule_AddObject(module, "PAWN_DIRECTION", pawnDirection);
@@ -918,6 +920,12 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	PyDict_SetItem(opponent, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(OPPONENT(WHITE_IDX)));
 	PyDict_SetItem(opponent, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(OPPONENT(BLACK_IDX)));
 	PyModule_AddObject(module, "OPPONENT", opponent);
+	
+
+	scoring = PyDict_New();
+	PyDict_SetItem(scoring, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(SCORING(WHITE_IDX)));
+	PyDict_SetItem(scoring, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(SCORING(BLACK_IDX)));
+	PyModule_AddObject(module, "SCORING", scoring);
 
 
     return module;

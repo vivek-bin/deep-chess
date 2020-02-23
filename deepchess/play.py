@@ -9,6 +9,8 @@ elif CONST.ENGINE_TYPE == "C":
 else:
 	raise ImportError
 from . import search as SE
+from . import trainmodel as TM
+import copy
 import gc
 
 moveList = []
@@ -31,22 +33,31 @@ def playGame():
 	history = []
 
 	state, actions, end, reward = EG.init()
+	if CONST.MC_SEARCH_MOVE:
+		model = TM.loadModel(loadForTraining=False)
+		root = SE.initTree(state, actions, end, reward, history, model)
 	#state, actions, end, reward = EG.playRandomTillEnd(state)
 	while not end:
 		if moveList:
 			action = moveList.pop(0)
-			statePolicy = None
-			stateValue = None
+			policy = None
+			value = None
+			root = None
 		elif CONST.MC_SEARCH_MOVE:
-			action, stateValue, statePolicy = SE.searchTree(state, actions, end, reward, history)
-			gc.collect()
+			if root is None:
+				root = initTree(state, actions, end, reward, history, model)
+			root, action, value, policy = SE.searchTree(root)
 		else:
 			action = actions[int(random.random()*len(actions))]
-			statePolicy = None
-			stateValue = None
+			policy = None
+			value = None
+			root = None
+		
+		gc.collect()
+
 		nextState, actions, end, reward = EG.play(state, action, len(history))
 
-		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward, STATE_VALUE=stateValue, STATE_POLICY=statePolicy))
+		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward, STATE_VALUE=value, STATE_POLICY=policy))
 		state = nextState
 		if CONST.PLAY_MOVES:
 			printBoard(state)
@@ -125,6 +136,10 @@ def displayTk(state):
 	# create board
 	canvas.create_image(0, 0, image=boardImgTk, anchor=tk.NW, tags="board")
 
+	kingUnderCheck = EG.kingAttacked(state)
+	if kingUnderCheck:
+		canvas.create_image(kingUnderCheck[1]*CONST.IMAGE_SIZE, kingUnderCheck[0]*CONST.IMAGE_SIZE, image=attackImgTk, anchor=tk.NW)
+
 	# place pieces
 	for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
 		for i in range(EG.BOARD_SIZE):
@@ -132,9 +147,6 @@ def displayTk(state):
 				box = state["BOARD"][player][i][j]
 				if box != EG.EMPTY:
 					canvas.create_image(j*CONST.IMAGE_SIZE, i*CONST.IMAGE_SIZE, image=pieceImagesTk[player][box], anchor=tk.NW, tags="piece")
-	kingUnderCheck = EG.kingAttacked(state)
-	if kingUnderCheck:
-		canvas.create_image(kingUnderCheck[1]*CONST.IMAGE_SIZE, kingUnderCheck[0]*CONST.IMAGE_SIZE, image=attackImgTk, anchor=tk.NW)
 
 	root.mainloop()
 

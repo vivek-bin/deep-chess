@@ -19,65 +19,56 @@ else:
 from . import search as SE
 from .models.models import *
 
-def prepareModelInput(gameHistory):
-	score = gameHistory[-1]["REWARD"]
-	allInput = []
+def prepareModelInput(stateHistories):
+	batchSize = len(stateHistories)+1
+	boardInput = np.ones((batchSize, CONST.BOARD_HISTORY, 2, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * EG.EMPTY
+	playerInput = np.ones((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+	castlingStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+	enPassantStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+	for i, stateHistory in enumerate(stateHistories):
+		for j in range(min(CONST.BOARD_HISTORY, len(stateHistory))):
+			boardInput[i, j, :, :, :] = np.array(stateHistory[-1-j]["BOARD"], dtype=np.int8)
+		
+		state = stateHistory[-1]
 
-	for i in range(len(gameHistory)):
-		boardInput = np.ones((CONST.BOARD_HISTORY, 2, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * EG.EMPTY
-		for j in range(CONST.BOARD_HISTORY):
-			if i >= j:
-				boardInput[j] = np.array(gameHistory[i-j]["STATE"]["BOARD"], dtype=np.int8)
-		boardInput = boardInput.reshape((-1, EG.BOARD_SIZE, EG.BOARD_SIZE))
-
-		states = gameHistory[i]["STATE"]
+		playerInput[i, 0] *= state["PLAYER"]
 		
-		playerInput = np.ones((1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * states["PLAYER"]
-		
-		castlingStateInput = np.zeros((1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
 		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
-			if states["CASTLING_AVAILABLE"][player][EG.LEFT_CASTLE]:
-				for i in range(0, EG.BOARD_SIZE//2):
-					castlingStateInput[0, EG.KING_LINE[player], i] = 1
-			if states["CASTLING_AVAILABLE"][player][EG.RIGHT_CASTLE]:
-				for i in range(EG.BOARD_SIZE//2 + 1, EG.BOARD_SIZE):
-					castlingStateInput[0, EG.KING_LINE[player], i] = 1
+			if state["CASTLING_AVAILABLE"][player][EG.LEFT_CASTLE]:
+				castlingStateInput[i, 0, EG.KING_LINE[player], :EG.BOARD_SIZE//2] = 1
+			if state["CASTLING_AVAILABLE"][player][EG.RIGHT_CASTLE]:
+				castlingStateInput[i, 0, EG.KING_LINE[player], (EG.BOARD_SIZE//2 - 1):] = 1
 		
-		enPassantStateInput = np.zeros((1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
 		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
-			if states["EN_PASSANT"][player] >= 0:
-				movement = EG.PAWN_DIRECTION[player] * EG.PAWN_NORMAL_MOVE
-				pawnPos = np.array((EG.KING_LINE[player], states["EN_PASSANT"][player]), dtype=np.int8)
+			if state["EN_PASSANT"][player] >= 0:
+				movement = EG.PAWN_DIRECTION[player][0] * EG.PAWN_NORMAL_MOVE[0]
+				pawnPos = EG.KING_LINE[player]
 				for _ in range(3):
 					pawnPos = pawnPos + movement
-					enPassantStateInput[0, pawnPos[0], pawnPos[1]] = 1
-		statesInput = np.concatenate([playerInput, castlingStateInput, enPassantStateInput])
+					enPassantStateInput[i, 0, pawnPos, state["EN_PASSANT"][player]] = 1
+
+	boardInput = boardInput.reshape((batchSize, -1, EG.BOARD_SIZE, EG.BOARD_SIZE))
+	stateInput = np.concatenate([playerInput, castlingStateInput, enPassantStateInput], axis=1)
+
+	return (boardInput, stateInput)
 
 
-		moveScore = score * (CONST.SCORE_DECAY ** (len(gameHistory) - i - 1))
-		moveIndex = SE.moveIndex(gameHistory[i][2])
+def prepareTrainingInput(histories):
+	stateHistories = tuple((tuple((x["STATE"] for x in history)) for history in histories))
+	(boardInputs, stateInputs) = prepareModelInput(stateHistories)
 
-		x = (boardInput, statesInput)
-		y = (moveScore, moveIndex)
-		allInput.append(x, y)
-	
-	return allInput
+	values = np.array((history[-1]["STATE_VALUE"] for history in histories))
+	policies = []
+	for history in histories:
+		policy = [0] * EG.MAX_POSSIBLE_MOVES
+		for actionIdx, probability in history[-1]["STATE_POLICY"].keys():
+			policy[actionIdx] = probability
 
+		policies.append(policy)
+	policies = np.array(policies)
 
-def sparseCrossEntropyLoss(targets=None, outputs=None):
-	batchSize = K.shape(outputs)[0]
-	sequenceSize = K.shape(outputs)[1]
-	vocabularySize = K.shape(outputs)[2]
-	firstPositionShifter = K.repeat(K.expand_dims(K.arange(sequenceSize) * vocabularySize, 0), batchSize)
-	secondPositionShifter = K.repeat(K.expand_dims(K.arange(batchSize) * sequenceSize * vocabularySize, 1), sequenceSize)
+	return (boardInputs, stateInputs), (values, policies)
 
-	shiftedtargets = K.cast(K.flatten(targets), "int32") + K.flatten(firstPositionShifter) + K.flatten(secondPositionShifter)
-
-	relevantValues = K.gather(K.flatten(outputs), shiftedtargets)
-	relevantValues = K.reshape(relevantValues, (batchSize, -1))
-	relevantValues = K.clip(relevantValues, K.epsilon(), 1. - K.epsilon())
-	cost = -K.log(relevantValues)
-	return cost
 
 def lrScheduler(epoch):
 	x = (epoch + 1) / (CONST.NUM_EPOCHS * CONST.DATA_PARTITIONS)
@@ -115,7 +106,7 @@ def loadModel(loadForTraining=True):
 	trainingModel = resNetChessModel()
 	if loadForTraining:
 		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY/CONST.DATA_PARTITIONS), loss=sparseCrossEntropyLoss, metrics=[CONST.EVALUATION_METRIC])
-		trainingModel.summary()
+	trainingModel.summary()
 
 	#load checkpoint if available
 	checkPointName = getLastCheckpoint(trainingModel.name)
@@ -129,6 +120,9 @@ def loadModel(loadForTraining=True):
 
 			trainingModel._make_train_function()
 			trainingModel.optimizer.set_weights(optimizerWeightValues)
+	else:
+		# save initial model
+		trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_NAME_SUFFIX)
 
 	return trainingModel
 

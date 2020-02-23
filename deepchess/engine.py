@@ -31,8 +31,8 @@ RIGHT_CASTLE = 1
 KING_CASTLE_STEPS = {WHITE_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}, BLACK_IDX:{LEFT_CASTLE:[], RIGHT_CASTLE:[]}}
 for player in [WHITE_IDX, BLACK_IDX]:
 	for i in range(3):
-		KING_CASTLE_STEPS[player][LEFT_CASTLE].append((KING_LINE[player], BOARD_SIZE//2 - i))
-		KING_CASTLE_STEPS[player][RIGHT_CASTLE].append((KING_LINE[player], BOARD_SIZE//2 + i))
+		KING_CASTLE_STEPS[player][LEFT_CASTLE].append((KING_LINE[player], BOARD_SIZE//2 - i - 1))
+		KING_CASTLE_STEPS[player][RIGHT_CASTLE].append((KING_LINE[player], BOARD_SIZE//2 + i - 1))
 
 PAWN_CAPTURE_MOVES = [(1, 1), (1, -1)]
 PAWN_NORMAL_MOVE = (1, 0)
@@ -54,7 +54,7 @@ def initializeGame():
 	state = {}
 	state["BOARD"] = [[[EMPTY]*BOARD_SIZE for _ in range(BOARD_SIZE)] for _ in range(2)]
 	for player in [WHITE_IDX, BLACK_IDX]:
-		for i, piece in enumerate([ROOK, KNIGHT, BISHOP, QUEEN, KING, BISHOP, KNIGHT, ROOK]):
+		for i, piece in enumerate([ROOK, KNIGHT, BISHOP, KING, QUEEN, BISHOP, KNIGHT, ROOK]):
 			state["BOARD"][player][KING_LINE[player]][i] = piece
 		
 		pawnLine = KING_LINE[player] + PAWN_DIRECTION[player][0]
@@ -63,10 +63,10 @@ def initializeGame():
 	
 	state["CASTLING_AVAILABLE"] = {WHITE_IDX:{LEFT_CASTLE:0, RIGHT_CASTLE:0}, BLACK_IDX:{LEFT_CASTLE:0, RIGHT_CASTLE:0}}
 	for player in [WHITE_IDX, BLACK_IDX]:
-		if state["BOARD"][player][KING_LINE[player]][BOARD_SIZE//2] == KING:
+		if state["BOARD"][player][KING_LINE[player]][KING_CASTLE_STEPS[player][LEFT_CASTLE][0][1]] == KING:
 			if state["BOARD"][player][KING_LINE[player]][0] == ROOK:
 				state["CASTLING_AVAILABLE"][player][LEFT_CASTLE] = 1
-			if state["BOARD"][player][KING_LINE[player]][BOARD_SIZE - 1] == ROOK:
+			if state["BOARD"][player][KING_LINE[player]][KING_CASTLE_STEPS[player][RIGHT_CASTLE][0][1]] == ROOK:
 				state["CASTLING_AVAILABLE"][player][RIGHT_CASTLE] = 1
 
 	state["EN_PASSANT"] = {WHITE_IDX:-1, BLACK_IDX:-1}

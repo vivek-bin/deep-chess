@@ -5,8 +5,10 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
+from . import trainmodel as TM
 import math
 import random
+import weakref
 
 
 def actionIndex(move):
@@ -59,7 +61,7 @@ def stateIndex(state):
 		return None
 
 	idx =  "".join([str(box) for playerBoard in state["BOARD"] for row in playerBoard for box in row])
-	sIdx = (str(state["EN_PASSANT"][EG.WHITE_IDX]) , str(state["EN_PASSANT"][EG.BLACK_IDX])
+	sIdx = (str(state["EN_PASSANT"][EG.WHITE_IDX]), str(state["EN_PASSANT"][EG.BLACK_IDX])
 		, str(state["CASTLING_AVAILABLE"][EG.WHITE_IDX][EG.LEFT_CASTLE]) 
 		, str(state["CASTLING_AVAILABLE"][EG.WHITE_IDX][EG.RIGHT_CASTLE])
 		, str(state["CASTLING_AVAILABLE"][EG.BLACK_IDX][EG.LEFT_CASTLE]) 
@@ -96,104 +98,133 @@ def stateFromIndex(idx):
 
 
 class Node():
-	def __init__(self, parent=None, previousAction=None, state=None, actions=None, end=None, reward=None, history=None):
-		self.parent = parent
-		self.previousAction = actionIndex(previousAction)
-		self.state = stateIndex(state)
+	def __init__(self, training=None, model=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None):
+		self.training = parent.training if parent else training
+		self.model = parent.model if parent else model
+		self.stateHistory = (parent.stateHistory if parent else stateHistory if stateHistory else tuple()) + (state, )
+
+		self.parent = weakref.ref(parent) if parent else None
+		self.previousAction = previousAction
+		self.actionProbability = actionProbability
+		self.state = state
 		self.player = state["PLAYER"]
-		self.actions = [actionIndex(x) for x in actions]
+		self.actions = {actionIndex(x):0 for x in actions}
 		self.end = end
 		self.reward = reward
-		self.history = history
 
 		self.children = []
+
 		self.visits = 0
-		self.wins = 0
-		self.losses = 0
-		self.draws = 0
+		self.stateTotalValue = 0
 
-		self.exploreValue = 0
-		self.stateValue = 0
+		self.stateValue = None
+		self.exploreValue = 0#None
 
-	def getState(self):
-		return stateFromIndex(self.state)
+	def setValuePolicy(self):
+		modelInput = TM.prepareModelInput([self.stateHistory])
 
-	def getPreviousAction(self):
-		return actionFromIndex(self.previousAction)
+		value, policy = self.model.predict(modelInput)
 
-	def getActions(self):
-		return [actionFromIndex(x) for x in self.actions]
+		self.setValue(value[0])
+		self.setPolicy(policy[0])
 
-	def statePolicy(self):
-		sortedChildren = sorted([(x.previousAction, x.nodeValue(exploratory=False)) for x in self.children], key=lambda x:-x[1])
+	def setValue(self, value):
+		self.stateValue = value
+		
+	def setPolicy(self, policy):
+		for actionIdx in self.actions.keys():
+			self.actions[actionIdx] = policy[actionIdx]
 
-		return sortedChildren
+	def setLikeRoot(self):
+		self.parent = None
+		self.previousAction = None
 
-	def bestChild(self, exploratory=False):
+	def bestChild(self):
 		best = random.choice(self.children) if self.children else None
-		bestValue = best.nodeValue(exploratory)
+		bestValue = best.nodeValue()
 		for child in self.children:
-			childValue = child.nodeValue(exploratory)
+			childValue = child.nodeValue()
 			if childValue > bestValue:
 				best = child
 				bestValue = childValue
 		return best
 
-	def nodeValue(self, exploratory):
-		return self.stateValue + (CONST.MC_EXPLORATION_CONST * self.exploreValue) if exploratory else 0
+	def nodeValue(self):
+		x = (self.stateValue + self.stateTotalValue) / (self.visits + 1)
+		if self.training:
+			x += CONST.MC_EXPLORATION_CONST * self.exploreValue
+		return x
 	
-	def incrementCounters(self, reward):
-		self.visits = self.visits + 1
-
-		if reward > 0:
-			self.wins = self.wins + 1
-		elif reward < 0:
-			self.losses = self.losses + 1
-		else:
-			self.draws = self.draws + 1
+	def getLeaf(self):
+		node = self
+		while node.children:
+			node = node.bestChild()
 		
-		self.stateValue = (self.wins if self.player == EG.WHITE_IDX else self.losses)/self.visits if self.visits else 0 #chessModel.evaluate()
-		self.exploreValue = math.sqrt(math.log(self.parent.visits)/self.visits) if self.parent and self.parent.visits and self.visits else 0
-	
+		return node
 
-def searchTree(state, actions, end, reward, history):
+	def backPropogate(self):
+		leafValue = self.reward if self.end else self.stateValue
+
+		node = self
+		while(node):
+			node.visits += 1
+			node.stateTotalValue += leafValue * EG.SCORING[node.player]
+	
+			if self.training:
+				node.exploreValue = self.actionProbability * math.sqrt(node.parent().visits)/(1+node.visits) if node.parent else 0
+	
+			node = node.parent() if node.parent else None
+	
+	def expandLeaf(self):
+		if self.end:
+			self.backPropogate()
+		else:
+			parentStateHistory = self.stateHistory
+			parentState = parentStateHistory[-1]
+			childList = []
+			childStateHistories = []
+			for actionIdx, actionProbability in self.actions.items():
+				action = actionFromIndex(actionIdx)
+				nextState, actions, end, reward = EG.play(parentState, action, 0)
+				child = Node(parent=self, previousAction=action, actionProbability=actionProbability, state=nextState, actions=actions, end=end, reward=reward)
+				
+				childList.append(child)
+				childStateHistories.append(parentStateHistory+(nextState,))
+
+			modelInput = TM.prepareModelInput(childStateHistories)
+			value, policy = self.model.predict(modelInput)
+
+			for i, child in enumerate(childList):
+				child.setValue(value[i])
+				child.setPolicy(policy[i])
+				self.children.append(child)
+			
+			bestChildNode = self.bestChild()
+			bestChildNode.backPropogate()
+
+
+
+def initTree(state, actions, end, reward, history, model):
 	if not actions:
 		return None		# terminal node already
 	
-	root = Node(state=state, actions=actions, end=end, reward=reward, history=history)
+	stateHistory = tuple((x["STATE"] for x in history))
+	root = Node(training=True, model=model, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory)
+	root.setValuePolicy()
 
+	return root
+
+
+def searchTree(root):
 	for _ in range(CONST.NUM_SIMULATIONS):
-		node = getToLeaf(root)
-		expandLeaf(node)
+		node = root.getLeaf()
+		node.expandLeaf()
 	
-	bestAction = root.bestChild().getPreviousAction()
-	return bestAction, root.stateValue, root.statePolicy()
+	bestChild = root.bestChild()
+	bestAction = bestChild.previousAction
+	value = root.stateTotalValue / root.visits
+	policy = {actionIndex(child.previousAction):(child.visits/root.visits) for child in root.children}
 
+	bestChild.setLikeRoot()
+	return bestChild, bestAction, value, policy
 
-def expandLeaf(node):
-	bestChildNode = node
-	reward = node.reward
-
-	if node.actions:
-		for action in node.getActions():
-			nextState, actions, end, reward = EG.play(node.getState(), action, 0)
-			child = Node(parent=node, previousAction=action, state=nextState, actions=actions, end=end, reward=reward)
-			node.children.append(child)
-		bestChildNode = node.bestChild(exploratory=True)
-
-		nextState, actions, end, reward = EG.playRandomTillEnd(bestChildNode.getState())
-
-	backPropogateNode(bestChildNode, reward)
-
-def getToLeaf(node):
-	while node.children:
-		node = node.bestChild(exploratory=True)
-	
-	return node
-	
-def backPropogateNode(node, reward):
-	while(node):
-		node.incrementCounters(reward)
-		node = node.parent
-	
-	
