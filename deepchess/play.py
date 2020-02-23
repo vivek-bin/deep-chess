@@ -25,7 +25,7 @@ def printBoard(state):
 
 	if CONST.DISPLAY_TK_BOARD:
 		displayTk(state)
-
+	print(CONST.LAPSED_TIME())
 	print("current player:", state["PLAYER"])
 
 def playGame():

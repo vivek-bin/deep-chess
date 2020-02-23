@@ -29,9 +29,9 @@ class HiddenPrints:
 # game constants
 ENGINE_TYPE = "C"		#C or PY
 MC_SEARCH_MOVE = True
-NUM_SIMULATIONS = 500
+NUM_SIMULATIONS = 1000
 DISPLAY_TEXT_BOARD = True
-DISPLAY_TK_BOARD = False
+DISPLAY_TK_BOARD = True
 PLAY_MOVES = True
 
 ###paths

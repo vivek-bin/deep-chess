@@ -123,7 +123,7 @@ class Node():
 	def setValuePolicy(self):
 		modelInput = TM.prepareModelInput([self.stateHistory])
 
-		value, policy = self.model.predict(modelInput)
+		value, policy = self.model.predict(modelInput, batch_size=EG.MAX_POSSIBLE_MOVES)
 
 		self.setValue(value[0])
 		self.setPolicy(policy[0])
@@ -192,7 +192,7 @@ class Node():
 				childStateHistories.append(parentStateHistory+(nextState,))
 
 			modelInput = TM.prepareModelInput(childStateHistories)
-			value, policy = self.model.predict(modelInput)
+			value, policy = self.model.predict(modelInput, batch_size=EG.MAX_POSSIBLE_MOVES)
 
 			for i, child in enumerate(childList):
 				child.setValue(value[i])
