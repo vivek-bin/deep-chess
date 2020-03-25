@@ -1,6 +1,7 @@
 import tensorflow as tf
 from tensorflow.keras.models import Model
 from tensorflow.keras import layers
+from tensorflow.keras.regularizers import l2
 
 from .. import constants as CONST
 if CONST.ENGINE_TYPE == "PY":
@@ -11,11 +12,11 @@ else:
 	raise ImportError
 
 def joinModelUnit(inputTensor, filters, kernel_size):
-	x = layers.Conv2D(filters=filters, kernel_size=kernel_size, padding="same", data_format=CONST.CONV_DATA_FORMAT)(inputTensor)
+	x = layers.Conv2D(filters=filters, kernel_size=kernel_size, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(inputTensor)
 	x = layers.BatchNormalization()(x)
 	x = layers.Activation(CONST.DENSE_ACTIVATION)(x)
 
-	x = layers.Conv2D(filters=filters, kernel_size=kernel_size, padding="same", data_format=CONST.CONV_DATA_FORMAT)(x)
+	x = layers.Conv2D(filters=filters, kernel_size=kernel_size, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
 	x = layers.Add()([inputTensor, x])
 	
 	x = layers.BatchNormalization()(x)
@@ -28,7 +29,7 @@ def resNetChessModel():
 	inputState = layers.Input(batch_shape=(None, 3, EG.BOARD_SIZE, EG.BOARD_SIZE))
 
 	flatBoard = layers.Reshape(target_shape=(-1, ))(inputBoard)
-	embeddedBoard = layers.Embedding(input_dim=7, output_dim=CONST.EMBEDDING_SIZE)(flatBoard)
+	embeddedBoard = layers.Embedding(input_dim=7, output_dim=CONST.EMBEDDING_SIZE, embeddings_regularizer=l2(CONST.L2_REGULARISATION))(flatBoard)
 	reformBoard = layers.Reshape(target_shape=(-1, EG.BOARD_SIZE, EG.BOARD_SIZE, CONST.EMBEDDING_SIZE))(embeddedBoard)
 
 	reformBoard = layers.Permute((4, 2, 3, 1))(reformBoard)
@@ -39,15 +40,15 @@ def resNetChessModel():
 		x = layers.Permute((2, 3, 1))(x)
 
 	x = layers.BatchNormalization()(x)
-	x = layers.Conv2D(filters=CONST.NUM_FILTERS, kernel_size=CONST.CONV_SIZE, padding="same", data_format=CONST.CONV_DATA_FORMAT)(x)
+	x = layers.Conv2D(filters=CONST.NUM_FILTERS, kernel_size=CONST.CONV_SIZE, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
 	for _ in range(CONST.MODEL_DEPTH):
 		x = joinModelUnit(x, filters=CONST.NUM_FILTERS, kernel_size=CONST.CONV_SIZE)
 
-	x = layers.Conv2D(filters=4, kernel_size=1, padding="same", data_format=CONST.CONV_DATA_FORMAT)(x)
-	x = layers.Reshape(target_shape=(EG.BOARD_SIZE*EG.BOARD_SIZE*4,))(x)
+	x = layers.Conv2D(filters=CONST.NUM_FILTERS//4, kernel_size=1, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	x = layers.Flatten()(x)
 
-	boardValue = layers.Dense(1,activation="tanh")(x)
-	moveProbabilities = layers.Dense(EG.MAX_POSSIBLE_MOVES, activation="softmax")(x)
+	boardValue = layers.Dense(1, activation="tanh", kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	moveProbabilities = layers.Dense(EG.MAX_POSSIBLE_MOVES, activation="softmax", kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
 
 	model = tf.keras.Model(inputs=[inputBoard, inputState], outputs=[boardValue, moveProbabilities])
 

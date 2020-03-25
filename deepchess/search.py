@@ -7,8 +7,10 @@ else:
 	raise ImportError
 from . import trainmodel as TM
 import math
+import statistics
 import random
 import weakref
+import pickle
 
 
 def actionIndex(move):
@@ -98,15 +100,37 @@ def stateFromIndex(idx):
 
 
 class Node():
-	def __init__(self, training=None, model=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None):
-		self.training = parent.training if parent else training
-		self.model = parent.model if parent else model
-		self.stateHistory = (parent.stateHistory if parent else stateHistory if stateHistory else tuple()) + (state, )
+	count = 0
+	training = True
+	model = None
+	gameIndex = 0
+	childCountList = []
 
-		self.parent = weakref.ref(parent) if parent else None
+	def initGlobalCounters(self):
+		print("minimum child count :", min(Node.childCountList))
+		print("maximum child count :", max(Node.childCountList))
+		print("average child count :", statistics.mean(Node.childCountList))
+		print("median child count :", statistics.median(Node.childCountList))
+		print("std dev child count :", statistics.stdev(Node.childCountList))
+		print("number of nodes :", Node.count)
+		Node.childCountList = []
+
+
+	def __init__(self, training=None, model=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None, stateIndexedHistory=None, gameIndex=None):
+		assert stateHistory is None or stateIndexedHistory is None		# max one of em
+
+		Node.count += 1
+		Node.model = model if model else Node.model
+		Node.training = training if training else Node.training
+		Node.gameIndex = gameIndex if gameIndex else Node.gameIndex
+		Node.childCountList.append(len(actions))
+		
+		self.stateHistory = stateIndexedHistory if stateIndexedHistory is not None else (tuple((stateIndex(s) for s in stateHistory)) if stateHistory else tuple())
+
+		self.parent = weakref.ref(parent) if parent else lambda:None
 		self.previousAction = previousAction
 		self.actionProbability = actionProbability
-		self.state = state
+		self.state = stateIndex(state)
 		self.player = state["PLAYER"]
 		self.actions = {actionIndex(x):0 for x in actions}
 		self.end = end
@@ -120,10 +144,15 @@ class Node():
 		self.stateValue = None
 		self.exploreValue = 0#None
 
-	def setValuePolicy(self):
-		modelInput = TM.prepareModelInput([self.stateHistory])
+	def __del__(self):
+		Node.count -= 1
 
-		value, policy = self.model.predict(modelInput, batch_size=EG.MAX_POSSIBLE_MOVES)
+	def setValuePolicy(self):
+		states = self.stateHistory + (self.state,)
+		states = [stateFromIndex(s) for s in states]
+		modelInput = TM.prepareModelInput([states])
+
+		value, policy = Node.model.predict(modelInput, batch_size=CONST.BATCH_SIZE)
 
 		self.setValue(value[0])
 		self.setPolicy(policy[0])
@@ -135,23 +164,23 @@ class Node():
 		for actionIdx in self.actions.keys():
 			self.actions[actionIdx] = policy[actionIdx]
 
-	def setLikeRoot(self):
-		self.parent = None
-		self.previousAction = None
-
 	def bestChild(self):
-		best = random.choice(self.children) if self.children else None
-		bestValue = best.nodeValue()
-		for child in self.children:
-			childValue = child.nodeValue()
-			if childValue > bestValue:
-				best = child
-				bestValue = childValue
-		return best
+		children = sorted([(child, child.nodeValue()) for child in self.children], key=lambda x:x[1])
+		if Node.training:
+			minimum = min((childValue for child, childValue in children))
+			total = sum((childValue-minimum for child, childValue in children))
+			num = ((random.random())**0.5) * total			# weigh upper level more
+
+			while num>=0 and children:
+				child, childValue = children.pop()
+				num -= childValue-minimum
+		else:
+			child = children[-1][0]
+		return child
 
 	def nodeValue(self):
 		x = (self.stateValue + self.stateTotalValue) / (self.visits + 1)
-		if self.training:
+		if Node.training:
 			x += CONST.MC_EXPLORATION_CONST * self.exploreValue
 		return x
 	
@@ -170,29 +199,30 @@ class Node():
 			node.visits += 1
 			node.stateTotalValue += leafValue * EG.SCORING[node.player]
 	
-			if self.training:
-				node.exploreValue = self.actionProbability * math.sqrt(node.parent().visits)/(1+node.visits) if node.parent else 0
+			if Node.training:
+				node.exploreValue = self.actionProbability * math.sqrt(node.parent().visits)/(1+node.visits) if node.parent() else 0
 	
-			node = node.parent() if node.parent else None
+			node = node.parent() if node.parent() else None
 	
 	def expandLeaf(self):
 		if self.end:
 			self.backPropogate()
 		else:
-			parentStateHistory = self.stateHistory
-			parentState = parentStateHistory[-1]
+			state = stateFromIndex(self.state)
+			childStateHistoryIndexed = self.stateHistory + (self.state,)
+			childStateHistory = tuple((stateFromIndex(state) for state in childStateHistoryIndexed))
 			childList = []
 			childStateHistories = []
 			for actionIdx, actionProbability in self.actions.items():
 				action = actionFromIndex(actionIdx)
-				nextState, actions, end, reward = EG.play(parentState, action, 0)
-				child = Node(parent=self, previousAction=action, actionProbability=actionProbability, state=nextState, actions=actions, end=end, reward=reward)
+				nextState, actions, end, reward = EG.play(state, action, 0)
+				child = Node(parent=self, previousAction=action, actionProbability=actionProbability, state=nextState, actions=actions, end=end, reward=reward, stateIndexedHistory=childStateHistoryIndexed)
 				
 				childList.append(child)
-				childStateHistories.append(parentStateHistory+(nextState,))
+				childStateHistories.append(childStateHistory + (nextState,))
 
 			modelInput = TM.prepareModelInput(childStateHistories)
-			value, policy = self.model.predict(modelInput, batch_size=EG.MAX_POSSIBLE_MOVES)
+			value, policy = Node.model.predict(modelInput, batch_size=CONST.BATCH_SIZE)
 
 			for i, child in enumerate(childList):
 				child.setValue(value[i])
@@ -202,14 +232,39 @@ class Node():
 			bestChildNode = self.bestChild()
 			bestChildNode.backPropogate()
 
+	def trimTree(self):
+		self.children.sort(key=lambda x:-x.nodeValue())
+		self.children = self.children[:10] 			#max(8, len(self.children)//2)]
+		for child in self.children:
+			child.trimTree()
+		
+
+	def saveNodeInfo(self):
+		tempDict = {}
+		tempDict["STATE"] = stateFromIndex(self.state)
+		tempDict["ACTIONS_POLICY"] = self.actions
+		tempDict["END"] = self.end
+		tempDict["REWARD"] = self.reward
+		tempDict["VALUE"] = self.nodeValue()
+		tempDict["STATE_HISTORY"] = tuple((stateFromIndex(s) for s in self.stateHistory))[-CONST.BOARD_HISTORY:]
+		tempDict["TRAINING"] = Node.training
+
+		tempDict["GAME_NUMBER"] = Node.gameIndex
+		tempDict["MOVE_NUMBER"] = len(self.stateHistory) + 1
+
+		fileName = "game_" + str(tempDict["GAME_NUMBER"]).zfill(5) + "_move_" + str(tempDict["MOVE_NUMBER"]).zfill(3)
+		
+		with open(CONST.DATA + fileName + ".pickle", "wb") as p:
+			pickle.dump(tempDict, p)
 
 
-def initTree(state, actions, end, reward, history, model):
+
+def initTree(state, actions, end, reward, history, model, gameIndex):
 	if not actions:
 		return None		# terminal node already
 	
 	stateHistory = tuple((x["STATE"] for x in history))
-	root = Node(training=True, model=model, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory)
+	root = Node(training=True, model=model, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory, gameIndex=gameIndex)
 	root.setValuePolicy()
 
 	return root
@@ -220,11 +275,12 @@ def searchTree(root):
 		node = root.getLeaf()
 		node.expandLeaf()
 	
+	root.initGlobalCounters()
+
 	bestChild = root.bestChild()
 	bestAction = bestChild.previousAction
 	value = root.stateTotalValue / root.visits
 	policy = {actionIndex(child.previousAction):(child.visits/root.visits) for child in root.children}
 
-	bestChild.setLikeRoot()
 	return bestChild, bestAction, value, policy
 

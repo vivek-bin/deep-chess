@@ -5,8 +5,16 @@ from os.path import isdir
 from time import time, ctime
 import os
 import sys
-#import tensorflow as tf
-#from tensorflow.keras import backend as K
+
+#os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+import tensorflow as tf
+from tensorflow.keras import backend as K
+physical_devices = tf.config.list_physical_devices('GPU') 
+try: 
+	tf.config.experimental.set_memory_growth(physical_devices[0], True) 
+except: 
+	# Invalid device or cannot modify virtual devices once initialized. 
+	pass
 
 print(ctime().rjust(60,"-"))
 START_TIME = time()
@@ -29,9 +37,9 @@ class HiddenPrints:
 # game constants
 ENGINE_TYPE = "C"		#C or PY
 MC_SEARCH_MOVE = True
-NUM_SIMULATIONS = 1000
+NUM_SIMULATIONS = 800
 DISPLAY_TEXT_BOARD = True
-DISPLAY_TK_BOARD = True
+DISPLAY_TK_BOARD = False
 PLAY_MOVES = True
 
 ###paths
@@ -56,8 +64,9 @@ MODEL_DEPTH = 40
 BOARD_HISTORY = 4
 SCORE_DECAY = 0.9
 
+L2_REGULARISATION = 1e-4
 CONV_DATA_FORMAT = "channels_last"
-DENSE_ACTIVATION = "relu"#lambda x: K.maximum(x, x * 0.1) # leaky relu
+DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 NUM_FILTERS = 128
 CONV_SIZE = 3
 
@@ -68,7 +77,7 @@ TRAIN_SPLIT_PCT = 0.90
 BATCH_SIZE = 32
 NUM_EPOCHS = 10
 VALIDATION_SPLIT_PCT = 0.1
-LEARNING_RATE = 0.0002
+LEARNING_RATE = 0.002
 LEARNING_RATE_DECAY = 0.
 SCHEDULER_LEARNING_SCALE = 1.1
 SCHEDULER_LEARNING_RATE = 4 * 10**-4

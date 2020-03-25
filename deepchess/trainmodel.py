@@ -20,7 +20,7 @@ from . import search as SE
 from .models.models import *
 
 def prepareModelInput(stateHistories):
-	batchSize = len(stateHistories)+1
+	batchSize = len(stateHistories)
 	boardInput = np.ones((batchSize, CONST.BOARD_HISTORY, 2, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * EG.EMPTY
 	playerInput = np.ones((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
 	castlingStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)

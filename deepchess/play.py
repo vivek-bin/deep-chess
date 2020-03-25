@@ -12,6 +12,7 @@ from . import search as SE
 from . import trainmodel as TM
 import copy
 import gc
+import psutil
 
 moveList = []
 
@@ -25,18 +26,21 @@ def printBoard(state):
 
 	if CONST.DISPLAY_TK_BOARD:
 		displayTk(state)
-	print(CONST.LAPSED_TIME())
 	print("current player:", state["PLAYER"])
+	print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
+	print(CONST.LAPSED_TIME())
 
-def playGame():
+def playGame(n=None):
 	global moveList
 	history = []
 
 	state, actions, end, reward = EG.init()
+	if CONST.PLAY_MOVES:
+		printBoard(state)
 	if CONST.MC_SEARCH_MOVE:
 		model = TM.loadModel(loadForTraining=False)
-		root = SE.initTree(state, actions, end, reward, history, model)
-	#state, actions, end, reward = EG.playRandomTillEnd(state)
+		root = SE.initTree(state, actions, end, reward, history, model, n)
+	
 	while not end:
 		if moveList:
 			action = moveList.pop(0)
@@ -45,8 +49,17 @@ def playGame():
 			root = None
 		elif CONST.MC_SEARCH_MOVE:
 			if root is None:
-				root = initTree(state, actions, end, reward, history, model)
-			root, action, value, policy = SE.searchTree(root)
+				root = SE.initTree(state, actions, end, reward, history, model, n)
+
+			if len(history)%100 == 0:
+				print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
+				root.trimTree()
+				gc.collect()
+				print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
+
+			bestChild, action, value, policy = SE.searchTree(root)
+			root.saveNodeInfo()
+			root = bestChild
 		else:
 			action = actions[int(random.random()*len(actions))]
 			policy = None
@@ -60,6 +73,7 @@ def playGame():
 		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward, STATE_VALUE=value, STATE_POLICY=policy))
 		state = nextState
 		if CONST.PLAY_MOVES:
+			print("move number :", len(history))
 			printBoard(state)
 
 	print(end, len(history))

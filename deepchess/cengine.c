@@ -18,7 +18,7 @@
 #define MAX_PIECE_MOVES (4*(BOARD_SIZE-1) + 1)
 #define MAX_AVAILABLE_MOVES (4*(BOARD_SIZE-1)*2*BOARD_SIZE + 1)
 #define STATE_SIZE (2*BOARD_SIZE*BOARD_SIZE + 4 + 2 + 1)
-#define MAX_GAME_STEPS 300
+#define MAX_GAME_STEPS 160
 
 #define LEN(x) (sizeof(x)/sizeof(x[0]))
 #define OPPONENT(x) (x==WHITE_IDX?BLACK_IDX:WHITE_IDX)
@@ -28,7 +28,7 @@
 #define IS_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?1:0)
 #define IS_NOT_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?0:1)
 #define CASTLE_MOVES(p, s) (p==WHITE_IDX?(s==LEFT_CASTLE?CASTLE_WHITE_LEFT:CASTLE_WHITE_RIGHT):(s==LEFT_CASTLE?CASTLE_BLACK_LEFT:CASTLE_BLACK_RIGHT))
-#define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
+#define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
 
 static void copyState(int state[], int blankState[]);
 static int getBoardBox(int state[], int player, int row, int col);
