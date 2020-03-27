@@ -7,96 +7,15 @@ else:
 	raise ImportError
 from . import trainmodel as TM
 import math
-import statistics
 import random
-import weakref
 import pickle
+import os
 
-
-def actionIndex(move):
-	if move is None:
-		return None
-	currentPos = move[0]
-	newPos = move[1]
-
-	if len(newPos) > 2:			# promotion
-		promotion = EG.PROMOTIONS.index(newPos[2])
-		newPawnLinearPos = (newPos[0] // (EG.BOARD_SIZE - 1)) * EG.BOARD_SIZE + newPos[1]
-		idx = (newPawnLinearPos * EG.BOARD_SIZE + currentPos[1]) * len(EG.PROMOTIONS) + promotion
-
-		idx = idx + 1 + (EG.BOARD_SIZE**4)
-	else:
-		currentLinearPos = currentPos[0] * EG.BOARD_SIZE + currentPos[1]
-		newLinearPos = newPos[0] * EG.BOARD_SIZE + newPos[1]
-		idx = newLinearPos * (EG.BOARD_SIZE**2) + currentLinearPos
-
-	return idx
-	
-def actionFromIndex(idx):
-	if idx < (EG.BOARD_SIZE**4):
-		currentLinearPos = idx % (EG.BOARD_SIZE * EG.BOARD_SIZE)
-		currentPos = (currentLinearPos // EG.BOARD_SIZE, currentLinearPos % EG.BOARD_SIZE)
-		
-		idx = idx // (EG.BOARD_SIZE**2)
-		newLinearPos = idx % (EG.BOARD_SIZE * EG.BOARD_SIZE)
-		newPos = (newLinearPos // EG.BOARD_SIZE, newLinearPos % EG.BOARD_SIZE)
-	else:
-		idx = idx - 1 - (EG.BOARD_SIZE**4)
-
-		promotion = EG.PROMOTIONS[idx % len(EG.PROMOTIONS)]
-		idx = idx // len(EG.PROMOTIONS)
-
-		currentPosCol = idx % EG.BOARD_SIZE
-		idx = idx // EG.BOARD_SIZE
-		newPosCol = idx % EG.BOARD_SIZE
-		idx = idx // EG.BOARD_SIZE
-		newPosRow = idx * (EG.BOARD_SIZE - 1)
-		currentPosRow = abs(newPosRow - 1)
-
-		currentPos = (currentPosRow, currentPosCol)
-		newPos = (newPosRow, newPosCol, promotion)
-
-	return (currentPos, newPos)
-
-def stateIndex(state):
-	if state is None:
-		return None
-
-	idx =  "".join([str(box) for playerBoard in state["BOARD"] for row in playerBoard for box in row])
-	sIdx = (str(state["EN_PASSANT"][EG.WHITE_IDX]), str(state["EN_PASSANT"][EG.BLACK_IDX])
-		, str(state["CASTLING_AVAILABLE"][EG.WHITE_IDX][EG.LEFT_CASTLE]) 
-		, str(state["CASTLING_AVAILABLE"][EG.WHITE_IDX][EG.RIGHT_CASTLE])
-		, str(state["CASTLING_AVAILABLE"][EG.BLACK_IDX][EG.LEFT_CASTLE]) 
-		, str(state["CASTLING_AVAILABLE"][EG.BLACK_IDX][EG.RIGHT_CASTLE])
-		, str(state["PLAYER"]))
-
-	return idx + ",".join(sIdx)
-
-def stateFromIndex(idx):
-	state = {}
-	boardIdx = [int(x) for x in idx[:2*EG.BOARD_SIZE*EG.BOARD_SIZE]]
-	stateIdx = [int(x) for x in idx[2*EG.BOARD_SIZE*EG.BOARD_SIZE:].split(",")]
-
-	state["BOARD"] = []
-	for p in range(2):
-		state["BOARD"].append([])
-		for i in range(EG.BOARD_SIZE):
-			rowIdx = p*EG.BOARD_SIZE*EG.BOARD_SIZE + i*EG.BOARD_SIZE
-			state["BOARD"][p].append(boardIdx[rowIdx:rowIdx + EG.BOARD_SIZE])
-
-	state["EN_PASSANT"] = {}
-	state["EN_PASSANT"][EG.WHITE_IDX] = stateIdx[0]
-	state["EN_PASSANT"][EG.BLACK_IDX] = stateIdx[1]
-
-	state["CASTLING_AVAILABLE"] = {EG.WHITE_IDX:{}, EG.BLACK_IDX:{}}
-	state["CASTLING_AVAILABLE"][EG.WHITE_IDX][EG.LEFT_CASTLE] = stateIdx[2]
-	state["CASTLING_AVAILABLE"][EG.WHITE_IDX][EG.RIGHT_CASTLE] = stateIdx[3]
-	state["CASTLING_AVAILABLE"][EG.BLACK_IDX][EG.LEFT_CASTLE] = stateIdx[4]
-	state["CASTLING_AVAILABLE"][EG.BLACK_IDX][EG.RIGHT_CASTLE] = stateIdx[5]
-
-	state["PLAYER"] = stateIdx[6]
-
-	return state
+NUM_SIMULATIONS = 800
+PREDICTION_BATCH_SIZE = 128
+BACKPROP_DECAY = 0.95
+MC_EXPLORATION_CONST = 0.5
+STATE_HISTORY_LEN = 10
 
 
 class Node():
@@ -104,55 +23,64 @@ class Node():
 	training = True
 	model = None
 	gameIndex = 0
-	childCountList = []
+	lowStateMemoryUse = True
+	dataPath = None
 
-	def initGlobalCounters(self):
-		print("minimum child count :", min(Node.childCountList))
-		print("maximum child count :", max(Node.childCountList))
-		print("average child count :", statistics.mean(Node.childCountList))
-		print("median child count :", statistics.median(Node.childCountList))
-		print("std dev child count :", statistics.stdev(Node.childCountList))
-		print("number of nodes :", Node.count)
-		Node.childCountList = []
-
-
-	def __init__(self, training=None, model=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None, stateIndexedHistory=None, gameIndex=None):
-		assert stateHistory is None or stateIndexedHistory is None		# max one of em
+	def __init__(self, training=None, model=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None, gameIndex=None, dataPath=None):
+		assert (stateHistory is None) ^ (parent is None)		# one or the other
 
 		Node.count += 1
 		Node.model = model if model else Node.model
 		Node.training = training if training else Node.training
 		Node.gameIndex = gameIndex if gameIndex else Node.gameIndex
-		Node.childCountList.append(len(actions))
-		
-		self.stateHistory = stateIndexedHistory if stateIndexedHistory is not None else (tuple((stateIndex(s) for s in stateHistory)) if stateHistory else tuple())
+		Node.dataPath = dataPath if dataPath else Node.dataPath
 
-		self.parent = weakref.ref(parent) if parent else lambda:None
+		self.stateHistory = stateHistory
+		self.parent = parent
 		self.previousAction = previousAction
 		self.actionProbability = actionProbability
-		self.state = stateIndex(state)
-		self.player = state["PLAYER"]
-		self.actions = {actionIndex(x):0 for x in actions}
+		self.state = EG.stateIndex(state) if Node.lowStateMemoryUse else state
+		self.actions = {x:0 for x in actions}
 		self.end = end
-		self.reward = reward
+		self.reward = -1 if reward else 0 		# take players perspective; if game ends with current player => not a draw and player had no moves => player lost
 
 		self.children = []
 
 		self.visits = 0
 		self.stateTotalValue = 0
-
 		self.stateValue = None
-		self.exploreValue = 0#None
+		self.exploreValue = math.sqrt(parent.visits) if parent is not None and Node.training else 1
 
 	def __del__(self):
 		Node.count -= 1
 
-	def setValuePolicy(self):
-		states = self.stateHistory + (self.state,)
-		states = [stateFromIndex(s) for s in states]
-		modelInput = TM.prepareModelInput([states])
+	def getStateHistory(self, limit=STATE_HISTORY_LEN, indexed=False):
+		stateHistory = []
+		node = self
+		while len(stateHistory) < limit:
+			if Node.lowStateMemoryUse:
+				state = EG.stateFromIndex(node.state) if not indexed else node.state
+			else:
+				state = EG.stateIndex(node.state) if indexed else node.state
+			stateHistory.insert(0, state)
+			if node.parent is None:
+				left = limit - len(stateHistory)
+				if indexed:
+					stateHistory = [EG.stateIndex(state) for state in node.stateHistory[-left:]] + stateHistory
+				else:
+					stateHistory = list(node.stateHistory[-left:]) + stateHistory
+				break
+			
+			node = node.parent
 
-		value, policy = Node.model.predict(modelInput, batch_size=CONST.BATCH_SIZE)
+		return tuple(stateHistory)
+
+	def getModelPrediction(self, data):
+		modelInput = TM.prepareModelInput(data)
+		return Node.model.predict(modelInput, batch_size=PREDICTION_BATCH_SIZE)
+
+	def setValuePolicy(self):
+		value, policy = self.getModelPrediction([self.getStateHistory()])
 
 		self.setValue(value[0])
 		self.setPolicy(policy[0])
@@ -161,8 +89,8 @@ class Node():
 		self.stateValue = value
 		
 	def setPolicy(self, policy):
-		for actionIdx in self.actions.keys():
-			self.actions[actionIdx] = policy[actionIdx]
+		for action in self.actions.keys():
+			self.actions[action] = policy[EG.actionIndex(action)]
 
 	def bestChild(self):
 		children = sorted([(child, child.nodeValue()) for child in self.children], key=lambda x:x[1])
@@ -178,10 +106,10 @@ class Node():
 			child = children[-1][0]
 		return child
 
-	def nodeValue(self):
+	def nodeValue(self, explore=True):
 		x = (self.stateValue + self.stateTotalValue) / (self.visits + 1)
-		if Node.training:
-			x += CONST.MC_EXPLORATION_CONST * self.exploreValue
+		if Node.training and explore:
+			x += MC_EXPLORATION_CONST * self.actionProbability * self.exploreValue
 		return x
 	
 	def getLeaf(self):
@@ -192,37 +120,38 @@ class Node():
 		return node
 
 	def backPropogate(self):
+		decay = 1.0
 		leafValue = self.reward if self.end else self.stateValue
-
+		leafOppValue = -leafValue
 		node = self
-		while(node):
+
+		while node is not None:
 			node.visits += 1
-			node.stateTotalValue += leafValue * EG.SCORING[node.player]
-	
-			if Node.training:
-				node.exploreValue = self.actionProbability * math.sqrt(node.parent().visits)/(1+node.visits) if node.parent() else 0
-	
-			node = node.parent() if node.parent() else None
+			node.stateTotalValue += leafValue * decay
+			node.exploreValue = math.sqrt(node.parent.visits)/(1+node.visits) if node.parent is not None and Node.training else 1
+
+			decay *= BACKPROP_DECAY
+			leafValue, leafOppValue = leafOppValue, leafValue
+			node = node.parent
 	
 	def expandLeaf(self):
 		if self.end:
 			self.backPropogate()
 		else:
-			state = stateFromIndex(self.state)
-			childStateHistoryIndexed = self.stateHistory + (self.state,)
-			childStateHistory = tuple((stateFromIndex(state) for state in childStateHistoryIndexed))
+			state = EG.stateFromIndex(self.state) if Node.lowStateMemoryUse else self.state
+			childStateHistory = self.getStateHistory()
+			repeatHistory = self.getStateHistory(indexed=True)
 			childList = []
 			childStateHistories = []
-			for actionIdx, actionProbability in self.actions.items():
-				action = actionFromIndex(actionIdx)
+			for action, actionProbability in self.actions.items():
 				nextState, actions, end, reward = EG.play(state, action, 0)
-				child = Node(parent=self, previousAction=action, actionProbability=actionProbability, state=nextState, actions=actions, end=end, reward=reward, stateIndexedHistory=childStateHistoryIndexed)
-				
-				childList.append(child)
-				childStateHistories.append(childStateHistory + (nextState,))
+				if EG.stateIndex(nextState) not in repeatHistory:
+					child = Node(parent=self, previousAction=action, actionProbability=actionProbability, state=nextState, actions=actions, end=end, reward=reward)
+					
+					childList.append(child)
+					childStateHistories.append(childStateHistory + (nextState,))
 
-			modelInput = TM.prepareModelInput(childStateHistories)
-			value, policy = Node.model.predict(modelInput, batch_size=CONST.BATCH_SIZE)
+			value, policy = self.getModelPrediction(childStateHistories)
 
 			for i, child in enumerate(childList):
 				child.setValue(value[i])
@@ -234,53 +163,67 @@ class Node():
 
 	def trimTree(self):
 		self.children.sort(key=lambda x:-x.nodeValue())
-		self.children = self.children[:10] 			#max(8, len(self.children)//2)]
+		self.children = self.children[:max(10, len(self.children)//2)]
 		for child in self.children:
 			child.trimTree()
 		
+	def runSimulations(self):
+		if Node.count>150000:
+			print("------------- Before trim node count :", Node.count)
+			self.trimTree()
+			print("------------- After  trim node count :", Node.count)
+
+		for _ in range(NUM_SIMULATIONS):
+			self.getLeaf().expandLeaf()
 
 	def saveNodeInfo(self):
 		tempDict = {}
-		tempDict["STATE"] = stateFromIndex(self.state)
+		tempDict["STATE"] = EG.stateFromIndex(self.state) if Node.lowStateMemoryUse else self.state
 		tempDict["ACTIONS_POLICY"] = self.actions
+		tempDict["SEARCHED_POLICY"] = {child.previousAction:(child.visits/self.visits) for child in self.children}
 		tempDict["END"] = self.end
 		tempDict["REWARD"] = self.reward
-		tempDict["VALUE"] = self.nodeValue()
-		tempDict["STATE_HISTORY"] = tuple((stateFromIndex(s) for s in self.stateHistory))[-CONST.BOARD_HISTORY:]
+		tempDict["VALUE"] = self.nodeValue(explore=False)
+		tempDict["EXPLORATORY_VALUE"] = self.nodeValue()
+		tempDict["STATE_HISTORY"] = self.getStateHistory()
 		tempDict["TRAINING"] = Node.training
 
 		tempDict["GAME_NUMBER"] = Node.gameIndex
-		tempDict["MOVE_NUMBER"] = len(self.stateHistory) + 1
+		tempDict["MOVE_NUMBER"] = len(self.getStateHistory(9999)) + 1
 
 		fileName = "game_" + str(tempDict["GAME_NUMBER"]).zfill(5) + "_move_" + str(tempDict["MOVE_NUMBER"]).zfill(3)
 		
-		with open(CONST.DATA + fileName + ".pickle", "wb") as p:
+		with open(Node.dataPath + fileName + ".pickle", "wb") as p:
 			pickle.dump(tempDict, p)
 
 
 
-def initTree(state, actions, end, reward, history, model, gameIndex):
+def initTree(state, actions, end, reward, history, model, dataPath):
 	if not actions:
 		return None		# terminal node already
+
+	fileNames = [x for x in os.listdir(dataPath) if x.startswith("game_") and x.endswith(".pickle")]
+	gameIndices = [int(x.split("_")[1]) for x in fileNames]
+	gameIndex = max(gameIndices + [-1]) + 1
 	
 	stateHistory = tuple((x["STATE"] for x in history))
-	root = Node(training=True, model=model, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory, gameIndex=gameIndex)
+	root = Node(training=True, model=model, actionProbability=1, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory, gameIndex=gameIndex, dataPath=dataPath)
 	root.setValuePolicy()
 
 	return root
 
 
 def searchTree(root):
-	for _ in range(CONST.NUM_SIMULATIONS):
-		node = root.getLeaf()
-		node.expandLeaf()
-	
-	root.initGlobalCounters()
+	print("start number of nodes :", Node.count)
+
+	root.runSimulations()
+
+	print("end number of nodes :", Node.count)
+	root.saveNodeInfo()
 
 	bestChild = root.bestChild()
 	bestAction = bestChild.previousAction
-	value = root.stateTotalValue / root.visits
-	policy = {actionIndex(child.previousAction):(child.visits/root.visits) for child in root.children}
+	root.children = [bestChild]			# keep only played move history
 
-	return bestChild, bestAction, value, policy
+	return bestChild, bestAction
 

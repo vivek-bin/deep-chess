@@ -18,7 +18,7 @@
 #define MAX_PIECE_MOVES (4*(BOARD_SIZE-1) + 1)
 #define MAX_AVAILABLE_MOVES (4*(BOARD_SIZE-1)*2*BOARD_SIZE + 1)
 #define STATE_SIZE (2*BOARD_SIZE*BOARD_SIZE + 4 + 2 + 1)
-#define MAX_GAME_STEPS 160
+#define MAX_GAME_STEPS 200
 
 #define LEN(x) (sizeof(x)/sizeof(x[0]))
 #define OPPONENT(x) (x==WHITE_IDX?BLACK_IDX:WHITE_IDX)
@@ -29,36 +29,39 @@
 #define IS_NOT_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?0:1)
 #define CASTLE_MOVES(p, s) (p==WHITE_IDX?(s==LEFT_CASTLE?CASTLE_WHITE_LEFT:CASTLE_WHITE_RIGHT):(s==LEFT_CASTLE?CASTLE_BLACK_LEFT:CASTLE_BLACK_RIGHT))
 #define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
+#define ACTION_SIZE 5
 
-static void copyState(int state[], int blankState[]);
-static int getBoardBox(int state[], int player, int row, int col);
-static void setBoardBox(int state[], int value, int player, int row, int col);
-static int getEnPassant(int state[], int player);
-static void setEnPassant(int state[], int value, int player);
-static int getCastling(int state[], int player, int side);
-static void setCastling(int state[], int value, int player, int side);
-static int getPlayer(int state[]);
-static void setPlayer(int state[], int value);
+static void copyState(char state[], char blankState[]);
+static int getBoardBox(char state[], int player, int row, int col);
+static void setBoardBox(char state[], int value, int player, int row, int col);
+static int getEnPassant(char state[], int player);
+static void setEnPassant(char state[], int value, int player);
+static int getCastling(char state[], int player, int side);
+static void setCastling(char state[], int value, int player, int side);
+static int getPlayer(char state[]);
+static void setPlayer(char state[], int value);
+static int actionIndex(char action[]);
+static void actionFromIndex(int idx, char action[]);
 
-static PyObject* stateToPy(int state[]);
-static void stateFromPy(PyObject* pyState, int state[]);
-static PyObject* actionsToPy(int positions[]);
-static void actionFromPy(PyObject* pyAction, int action[]);
+static PyObject* stateToPy(char state[]);
+static void stateFromPy(PyObject* pyState, char state[]);
+static PyObject* actionsToPy(char positions[]);
+static void actionFromPy(PyObject* pyAction, char action[]);
 
-static void initializeBoard(int state[]);
-static void initializeCastling(int state[]);
-static void initializeGame(int state[]);
+static void initializeBoard(char state[]);
+static void initializeCastling(char state[]);
+static void initializeGame(char state[]);
 
-static int clipSlideMoves(int state[], int player, int position[], const int direction[]);
-static int positionCheck(int state[], int player, int x, int y);
-static void positionMoves(int positions[], int state[], int position[], int player, int onlyFetchAttackSquares);
-static void positionAllowedMoves(int positions[], int state[], int position[]);
-static int positionAttacked(int state[], int position[], int player);
-static void kingPosition(int state[], int player, int position[]);
-static int kingAttacked(int state[], int player);
-static void allActions(int state[], int actions[]);
-static void performAction(int state[], int move[]);
-static int checkGameEnd(int state[], int actions[], int duration);
+static int clipSlideMoves(char state[], int player, char position[], const int direction[]);
+static int positionCheck(char state[], int player, int x, int y);
+static void positionMoves(char positions[], char state[], char position[], int player, int onlyFetchAttackSquares);
+static void positionAllowedMoves(char positions[], char state[], char position[]);
+static int positionAttacked(char state[], char position[], int player);
+static void kingPosition(char state[], int player, char position[]);
+static int kingAttacked(char state[], int player);
+static void allActions(char state[], char actions[]);
+static void performAction(char state[], char move[]);
+static int checkGameEnd(char state[], char actions[], int duration);
 static PyObject* __kingAttacked(PyObject* self, PyObject *args);
 static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args);
 static PyObject* __init(PyObject *self, PyObject *args);
@@ -91,65 +94,100 @@ const char END_MESSAGE[4][25] = {"draw,max_steps", "draw,only_kings", "draw,stal
 
 
 
-static void copyState(int state[], int blankState[]){
+static void copyState(char state[], char blankState[]){
 	int i;
 	for(i=0; i<STATE_SIZE; i++){
 		blankState[i] = state[i];
 	}
 }
 
-static int getBoardBox(int state[], int player, int row, int col){
+static int getBoardBox(char state[], int player, int row, int col){
 	int idx;
 	idx = player*BOARD_SIZE*BOARD_SIZE + row*BOARD_SIZE + col;
 	return state[idx];
 }
 
-static void setBoardBox(int state[], int value, int player, int row, int col){
+static void setBoardBox(char state[], int value, int player, int row, int col){
 	int idx;
 	idx = player*BOARD_SIZE*BOARD_SIZE + row*BOARD_SIZE + col;
 	state[idx] = value;
 }
 
-static int getEnPassant(int state[], int player){
+static int getEnPassant(char state[], int player){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2;
 	return state[offset + player];
 }
 
-static void setEnPassant(int state[], int value, int player){
+static void setEnPassant(char state[], int value, int player){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2;
 	state[offset + player] = value;
 }
 
-static int getCastling(int state[], int player, int side){
+static int getCastling(char state[], int player, int side){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2;
 	return state[offset + player*2 + side];
 }
 
-static void setCastling(int state[], int value, int player, int side){
+static void setCastling(char state[], int value, int player, int side){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2;
 	state[offset + player*2 + side] = value;
 }
 
-static int getPlayer(int state[]){
+static int getPlayer(char state[]){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2 + 4;
 	return state[offset];
 }
 
-static void setPlayer(int state[], int value){
+static void setPlayer(char state[], int value){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2 + 4;
 	state[offset] = value;
 }
 
+static int actionIndex(char action[]){
+	int idx=0, p;
+	if(action[4]>0){
+		for(p=0; p<LEN(PROMOTIONS) && PROMOTIONS[p]!=action[4]; p++);
+		idx = (action[2]/(BOARD_SIZE-1))*BOARD_SIZE + action[3];
+		idx = (idx*BOARD_SIZE + action[1])*LEN(PROMOTIONS) + p;
+
+		idx += 1 + BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE;
+	}
+	else{
+		idx = action[0]*BOARD_SIZE + action[1];
+		idx += (action[2]*BOARD_SIZE + action[3])*BOARD_SIZE*BOARD_SIZE;
+	}
+	return idx;
+}
+
+static void actionFromIndex(int idx, char action[]){
+	if(idx<BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE){
+		action[1] = idx % BOARD_SIZE;	idx /= BOARD_SIZE;
+		action[0] = idx % BOARD_SIZE;	idx /= BOARD_SIZE;
+		action[3] = idx % BOARD_SIZE;	idx /= BOARD_SIZE;
+		action[2] = idx % BOARD_SIZE;	idx /= BOARD_SIZE;
+		action[4] = 0;
+	}
+	else{
+		idx -= 1 + BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE;
+		
+		action[4] = PROMOTIONS[idx % LEN(PROMOTIONS)];	idx /= LEN(PROMOTIONS);
+		action[1] = idx % BOARD_SIZE; 					idx /= BOARD_SIZE;
+		action[3] = idx % BOARD_SIZE; 					idx /= BOARD_SIZE;
+		action[2] = idx * (BOARD_SIZE - 1);
+		action[0] = action[2] + (action[2]==0?1:-1);
+	}
+}
 
 
-static PyObject* stateToPy(int state[]){
-	PyObject* pyState, *board, *boardPlayer, *boardRow, *castling, *castlingPlayer, *enPassant;
+static PyObject* stateToPy(char state[]){
+	PyObject *pyState, *board, *boardPlayer, *boardRow, *castling, *castlingPlayer, *enPassant, *player;
+	PyObject *white, *black, *left, *right, *v;
 	int i, j, k;
 
 	board = PyList_New(2);
@@ -165,61 +203,89 @@ static PyObject* stateToPy(int state[]){
 		PyList_SetItem(board, i, boardPlayer);
 	}
 
+	white = PyLong_FromLong(WHITE_IDX);
+	black = PyLong_FromLong(BLACK_IDX);
+	left = PyLong_FromLong(LEFT_CASTLE);
+	right = PyLong_FromLong(RIGHT_CASTLE);
+
 	enPassant = PyDict_New();
-	PyDict_SetItem(enPassant, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(getEnPassant(state, WHITE_IDX)));
-	PyDict_SetItem(enPassant, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(getEnPassant(state, BLACK_IDX)));
+	v = PyLong_FromLong(getEnPassant(state, WHITE_IDX));	PyDict_SetItem(enPassant, white, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(getEnPassant(state, BLACK_IDX));	PyDict_SetItem(enPassant, black, v);	Py_XDECREF(v);
 
 	castling = PyDict_New();
 	castlingPlayer = PyDict_New();
-	PyDict_SetItem(castlingPlayer, PyLong_FromLong(LEFT_CASTLE), PyLong_FromLong(getCastling(state, WHITE_IDX, LEFT_CASTLE)));
-	PyDict_SetItem(castlingPlayer, PyLong_FromLong(RIGHT_CASTLE), PyLong_FromLong(getCastling(state, WHITE_IDX, RIGHT_CASTLE)));
-	PyDict_SetItem(castling, PyLong_FromLong(WHITE_IDX), castlingPlayer);
+	v = PyLong_FromLong(getCastling(state, WHITE_IDX, LEFT_CASTLE));	PyDict_SetItem(castlingPlayer, left, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(getCastling(state, WHITE_IDX, RIGHT_CASTLE));	PyDict_SetItem(castlingPlayer, right, v);	Py_XDECREF(v);
+	PyDict_SetItem(castling, white, castlingPlayer);Py_XDECREF(castlingPlayer);
 	castlingPlayer = PyDict_New();
-	PyDict_SetItem(castlingPlayer, PyLong_FromLong(LEFT_CASTLE), PyLong_FromLong(getCastling(state, BLACK_IDX, LEFT_CASTLE)));
-	PyDict_SetItem(castlingPlayer, PyLong_FromLong(RIGHT_CASTLE), PyLong_FromLong(getCastling(state, BLACK_IDX, RIGHT_CASTLE)));
-	PyDict_SetItem(castling, PyLong_FromLong(BLACK_IDX), castlingPlayer);
+	v = PyLong_FromLong(getCastling(state, BLACK_IDX, LEFT_CASTLE));	PyDict_SetItem(castlingPlayer, left, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(getCastling(state, BLACK_IDX, RIGHT_CASTLE));	PyDict_SetItem(castlingPlayer, right, v);	Py_XDECREF(v);
+	PyDict_SetItem(castling, black, castlingPlayer);Py_XDECREF(castlingPlayer);
 	
+	player = PyLong_FromLong(getPlayer(state));
 	
 	pyState = PyDict_New();
 	PyDict_SetItemString(pyState, "BOARD", board);
 	PyDict_SetItemString(pyState, "CASTLING_AVAILABLE", castling);
 	PyDict_SetItemString(pyState, "EN_PASSANT", enPassant);
-	PyDict_SetItemString(pyState, "PLAYER", PyLong_FromLong(getPlayer(state)));
+	PyDict_SetItemString(pyState, "PLAYER", player);
+
+	Py_XDECREF(board);
+	Py_XDECREF(castling);
+	Py_XDECREF(enPassant);
+	Py_XDECREF(player);
+
+	Py_XDECREF(white);
+	Py_XDECREF(black);
+	Py_XDECREF(left);
+	Py_XDECREF(right);
 	return pyState;
 }
 
-static void stateFromPy(PyObject* pyState, int state[]){
-	PyObject *board, *castling, *enPassant;
+static void stateFromPy(PyObject* pyState, char state[]){
+	PyObject *board=NULL, *castling=NULL, *enPassant=NULL, *player=NULL, *item=NULL;
+	PyObject *white=NULL, *black=NULL, *leftCastle=NULL, *rightCastle=NULL;
 	int i, j, k;
 
 	board = PyDict_GetItemString(pyState, "BOARD");
 	castling = PyDict_GetItemString(pyState, "CASTLING_AVAILABLE");
 	enPassant = PyDict_GetItemString(pyState, "EN_PASSANT");
-	setPlayer(state, PyLong_AsLong(PyDict_GetItemString(pyState, "PLAYER")));
+	player = PyDict_GetItemString(pyState, "PLAYER");
 
 	for(i=0; i<2; i++){
 		for(j=0; j<BOARD_SIZE; j++){
 			for(k=0; k<BOARD_SIZE; k++){
-				setBoardBox(state, PyLong_AsLong(PyList_GetItem(PyList_GetItem(PyList_GetItem(board, i), j), k)), i, j, k);
+				item = PyList_GetItem(PyList_GetItem(PyList_GetItem(board, i), j), k);
+				setBoardBox(state, PyLong_AsLong(item), i, j, k);
 			}
 		}
 	}
 
-	setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, PyLong_FromLong(WHITE_IDX))), WHITE_IDX);
-	setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, PyLong_FromLong(BLACK_IDX))), BLACK_IDX);
+	white = PyLong_FromLong(WHITE_IDX);
+	black = PyLong_FromLong(BLACK_IDX);
+	leftCastle = PyLong_FromLong(LEFT_CASTLE);
+	rightCastle = PyLong_FromLong(RIGHT_CASTLE);
 
-	setCastling(state, PyLong_AsLong(PyDict_GetItem(PyDict_GetItem(castling, PyLong_FromLong(WHITE_IDX)), PyLong_FromLong(LEFT_CASTLE))), WHITE_IDX, LEFT_CASTLE);
-	setCastling(state, PyLong_AsLong(PyDict_GetItem(PyDict_GetItem(castling, PyLong_FromLong(WHITE_IDX)), PyLong_FromLong(RIGHT_CASTLE))), WHITE_IDX, RIGHT_CASTLE);
-	setCastling(state, PyLong_AsLong(PyDict_GetItem(PyDict_GetItem(castling, PyLong_FromLong(BLACK_IDX)), PyLong_FromLong(LEFT_CASTLE))), BLACK_IDX, LEFT_CASTLE);
-	setCastling(state, PyLong_AsLong(PyDict_GetItem(PyDict_GetItem(castling, PyLong_FromLong(BLACK_IDX)), PyLong_FromLong(RIGHT_CASTLE))), BLACK_IDX, RIGHT_CASTLE);
+	setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, white)), WHITE_IDX);
+	setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, black)), BLACK_IDX);
+
+	item = PyDict_GetItem(PyDict_GetItem(castling, white), leftCastle);		setCastling(state, PyLong_AsLong(item), WHITE_IDX, LEFT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, white), rightCastle);	setCastling(state, PyLong_AsLong(item), WHITE_IDX, RIGHT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, black), leftCastle);		setCastling(state, PyLong_AsLong(item), BLACK_IDX, LEFT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, black), rightCastle);	setCastling(state, PyLong_AsLong(item), BLACK_IDX, RIGHT_CASTLE);
+
+	setPlayer(state, PyLong_AsLong(player));
+
+	Py_XDECREF(white);Py_XDECREF(black);Py_XDECREF(leftCastle);Py_XDECREF(rightCastle);
 }
 
-static PyObject* actionsToPy(int positions[]){
+static PyObject* actionsToPy(char positions[]){
 	PyObject *pyActions, *move, *oldPos, *newPos;
 	int i, tot;
 
 	tot = 0;
-	pyActions = PyTuple_New(MAX_AVAILABLE_MOVES);
+	for(i=0; positions[i*ACTION_SIZE]!=-1; i++);
+	pyActions = PyTuple_New(i);
 	for(i=0; positions[i]!=-1; ){
 		move = PyTuple_New(2);
 
@@ -242,27 +308,26 @@ static PyObject* actionsToPy(int positions[]){
 		PyTuple_SetItem(move, 1, newPos);
 		PyTuple_SetItem(pyActions, tot++, move);
 	}
-	_PyTuple_Resize(&pyActions, tot);
 
 	return pyActions;
 }
 
-static void actionFromPy(PyObject* pyAction, int action[]){
-	action[0] = PyLong_AsLong(PyTuple_GetItem(PyTuple_GetItem(pyAction, 0), 0));
-	action[1] = PyLong_AsLong(PyTuple_GetItem(PyTuple_GetItem(pyAction, 0), 1));
-	action[2] = PyLong_AsLong(PyTuple_GetItem(PyTuple_GetItem(pyAction, 1), 0));
-	action[3] = PyLong_AsLong(PyTuple_GetItem(PyTuple_GetItem(pyAction, 1), 1));
-	if(PyTuple_Size(PyTuple_GetItem(pyAction, 1))>2){
-		action[4] = PyLong_AsLong(PyTuple_GetItem(PyTuple_GetItem(pyAction, 1), 2));
-	}
-	else{
-		action[4] = -1;
-	}
+static void actionFromPy(PyObject* pyAction, char action[]){
+	PyObject *pos=NULL;
+
+	pos = PyTuple_GetItem(pyAction, 0);
+	action[0] = PyLong_AsLong(PyTuple_GetItem(pos, 0));
+	action[1] = PyLong_AsLong(PyTuple_GetItem(pos, 1));
+
+	pos = PyTuple_GetItem(pyAction, 1);
+	action[2] = PyLong_AsLong(PyTuple_GetItem(pos, 0));
+	action[3] = PyLong_AsLong(PyTuple_GetItem(pos, 1));
+	action[4] = (PyTuple_Size(pos)>2)?PyLong_AsLong(PyTuple_GetItem(pos, 2)):-1;
 }
 
 
 
-static void initializeBoard(int state[]){
+static void initializeBoard(char state[]){
 	int i, j, k;
 	for(i=0; i<2; i++){
 		for(j=0; j<BOARD_SIZE; j++){
@@ -280,7 +345,7 @@ static void initializeBoard(int state[]){
 	}
 }
 
-static void initializeCastling(int state[]){
+static void initializeCastling(char state[]){
 	setCastling(state, 0, WHITE_IDX, LEFT_CASTLE);
 	setCastling(state, 0, WHITE_IDX, RIGHT_CASTLE);
 	setCastling(state, 0, BLACK_IDX, LEFT_CASTLE);
@@ -303,7 +368,7 @@ static void initializeCastling(int state[]){
 	}
 }
 
-static void initializeGame(int state[]){
+static void initializeGame(char state[]){
 	initializeBoard(state);
 	initializeCastling(state);
 	setEnPassant(state, -1, WHITE_IDX);setEnPassant(state, -1, BLACK_IDX);
@@ -312,7 +377,7 @@ static void initializeGame(int state[]){
 
 
 
-static int clipSlideMoves(int state[], int player, int position[], const int direction[]){
+static int clipSlideMoves(char state[], int player, char position[], const int direction[]){
 	int x,y; 
 	int move;
 	move = 1;
@@ -330,7 +395,7 @@ static int clipSlideMoves(int state[], int player, int position[], const int dir
 	return move - 1;
 }
 
-static int positionCheck(int state[], int player, int x, int y){
+static int positionCheck(char state[], int player, int x, int y){
 	if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(state, player, x, y) != EMPTY){
 		return -1;
 	}
@@ -338,13 +403,13 @@ static int positionCheck(int state[], int player, int x, int y){
 	return getBoardBox(state, OPPONENT(player), x, y);
 }
 
-static void positionMoves(int positions[], int state[], int position[], int player, int onlyFetchAttackSquares){
+static void positionMoves(char positions[], char state[], char position[], int player, int onlyFetchAttackSquares){
 	int box;
 	int i, j, x, y;
 	int posI;
 	const int *direction;
 	int clipLim, flag, temp;
-	int pos[2];
+	char pos[2];
 
 	posI=-1;
 	box = getBoardBox(state, player, position[0], position[1]);
@@ -527,9 +592,9 @@ static void positionMoves(int positions[], int state[], int position[], int play
 	}
 }
 
-static void positionAllowedMoves(int positions[], int state[], int position[]){
+static void positionAllowedMoves(char positions[], char state[], char position[]){
 	int i, j, gap;
-	int tempState[STATE_SIZE], move[5];
+	char tempState[STATE_SIZE], move[ACTION_SIZE];
 
 	positionMoves(positions, state, position, getPlayer(state), 0);
 
@@ -559,10 +624,10 @@ static void positionAllowedMoves(int positions[], int state[], int position[]){
 	}
 }
 
-static int positionAttacked(int state[], int position[], int player){
+static int positionAttacked(char state[], char position[], int player){
 	int originalPiece;
 	int i, j, flag;
-	int positions[MAX_PIECE_MOVES*3];
+	char positions[MAX_PIECE_MOVES*3];
 	
 	originalPiece = getBoardBox(state, player, position[0], position[1]);
 
@@ -584,7 +649,7 @@ static int positionAttacked(int state[], int position[], int player){
 	return flag;
 }
 
-static void kingPosition(int state[], int player, int position[]){
+static void kingPosition(char state[], int player, char position[]){
 	int i, j, flag;
 	flag = 0;
 	for(i=0; i<BOARD_SIZE; i++){
@@ -605,18 +670,18 @@ static void kingPosition(int state[], int player, int position[]){
 	}
 }
 
-static int kingAttacked(int state[], int player){
-	int position[2];
+static int kingAttacked(char state[], int player){
+	char position[2];
 	kingPosition(state, player, position);
 
 	return positionAttacked(state, position, player);
 }
 
-static void allActions(int state[], int actions[]){
+static void allActions(char state[], char actions[]){
 	int i, j , k, total;
-	int position[2], positions[MAX_PIECE_MOVES*3];
+	char position[2], positions[MAX_PIECE_MOVES*3];
 	
-	for(i=0; i<MAX_AVAILABLE_MOVES*5; i++){
+	for(i=0; i<MAX_AVAILABLE_MOVES*ACTION_SIZE; i++){
 		actions[i] = -1;
 	}
 
@@ -638,7 +703,7 @@ static void allActions(int state[], int actions[]){
 	}
 }
 
-static void performAction(int state[], int move[]){
+static void performAction(char state[], char move[]){
 	int player, piece, opponentPiece;
 
 	player = getPlayer(state);
@@ -689,7 +754,7 @@ static void performAction(int state[], int move[]){
 	setPlayer(state, OPPONENT(player));
 }
 
-static int checkGameEnd(int state[], int actions[], int duration){
+static int checkGameEnd(char state[], char actions[], int duration){
 	int endIdx;
 	int i,j,k,flag;
 	endIdx = -1;
@@ -719,8 +784,78 @@ static int checkGameEnd(int state[], int actions[], int duration){
 	return endIdx;
 }
 
+static void init(char state[], char actions[], int *endIdx, int *reward){
+	initializeGame(state);
+	allActions(state, actions);
+	*endIdx = checkGameEnd(state, actions, 0);
+	*reward = *endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+}
+
+static void play(char state[], char action[], int duration, char actions[], int *endIdx, int *reward){
+	performAction(state, action);
+	allActions(state, actions);
+	*endIdx = checkGameEnd(state, actions, duration);
+	*reward = *endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+}
+
+static PyObject* __actionIndex(PyObject *self, PyObject *args){
+	char action[ACTION_SIZE];
+	PyObject *pyAction;
+
+	pyAction = PyTuple_GetItem(args, 0);
+	actionFromPy(pyAction, action);
+	
+	return PyLong_FromLong(actionIndex(action));
+}
+
+static PyObject* __actionFromIndex(PyObject *self, PyObject *args){
+	char action[10]={-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
+	int idx;
+	PyObject *pyActionIdx, *pyActions, *pyAction;
+
+	pyActionIdx = PyTuple_GetItem(args, 0);
+	idx = PyLong_AsLong(pyActionIdx);
+	actionFromIndex(idx, action);
+
+	pyActions = actionsToPy(action);
+	pyAction = PyTuple_GetItem(pyActions, 0);
+	Py_XINCREF(pyAction);
+	Py_XDECREF(pyActions);	
+	return pyAction;
+}
+
+static PyObject* __stateIndex(PyObject *self, PyObject *args){
+	char state[STATE_SIZE+1];
+	int i;
+	PyObject *pyState;
+
+	pyState = PyTuple_GetItem(args, 0);
+	stateFromPy(pyState, state);
+	for(i=0; i<STATE_SIZE; i++){
+		state[i] = state[i] + '0';
+	}
+	state[STATE_SIZE] = '\0';
+	
+	return PyUnicode_FromString(state);
+}
+
+static PyObject* __stateFromIndex(PyObject *self, PyObject *args){
+	char *state;
+	int i;
+	PyObject *pyStateIdx;
+
+	pyStateIdx = PyTuple_GetItem(args, 0);
+	state = PyBytes_AsString(PyUnicode_AsUTF8String(pyStateIdx));
+	for(i=0; i<STATE_SIZE; i++){
+		state[i] = state[i] - '0';
+	}
+
+	return stateToPy(state);
+}
+
 static PyObject* __kingAttacked(PyObject* self, PyObject *args){
-	int state[STATE_SIZE], position[2], flag;
+	char state[STATE_SIZE], position[2];
+	int flag;
 	PyObject *pyState, *pyOutput;
 
 	pyState = PyTuple_GetItem(args, 0);
@@ -740,24 +875,25 @@ static PyObject* __kingAttacked(PyObject* self, PyObject *args){
 }
 
 static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args){
-	int state[STATE_SIZE], position[2], positions[MAX_PIECE_MOVES*3], actions[MAX_AVAILABLE_MOVES*5];
+	char state[STATE_SIZE], position[2], positions[MAX_PIECE_MOVES*3], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE];
 	int i, j;
-	PyObject *pyState, *pyPosition;
+	PyObject *pyState=NULL, *pyPosition=NULL, *x=NULL, *y=NULL;
 	pyState = PyTuple_GetItem(args, 0);
 	pyPosition = PyTuple_GetItem(args, 1);
 
 	stateFromPy(pyState, state);
-	position[0] = PyLong_AsLong(PyTuple_GetItem(pyPosition, 0));
-	position[1] = PyLong_AsLong(PyTuple_GetItem(pyPosition, 1));
+	x = PyTuple_GetItem(pyPosition, 0);y = PyTuple_GetItem(pyPosition, 1);
+	position[0] = PyLong_AsLong(x);	position[1] = PyLong_AsLong(y);
+
 	for(i=0;i<MAX_PIECE_MOVES*3;i++){
 		positions[i]=-1;
 	}
 
 	positionAllowedMoves(positions, state, position);
-	for(i=0;i<MAX_PIECE_MOVES*5;i++){
+	for(i=0;i<MAX_PIECE_MOVES*ACTION_SIZE;i++){
 		actions[i]=-1;
 	}
-	for(i=0, j=0; i<MAX_PIECE_MOVES*5 && positions[j]!=-1;){
+	for(i=0, j=0; i<MAX_PIECE_MOVES*ACTION_SIZE && positions[j]!=-1;){
 		actions[i++]=position[0];
 		actions[i++]=position[1];
 		actions[i++]=positions[j++];
@@ -769,15 +905,11 @@ static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args){
 }
 
 static PyObject* __init(PyObject *self, PyObject *args){
-	int state[STATE_SIZE];
-	int actions[MAX_AVAILABLE_MOVES*5];
+	char state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE];
 	int endIdx, reward;
 	PyObject *output;
 
-	initializeGame(state);
-	allActions(state, actions);
-	endIdx = checkGameEnd(state, actions, 0);
-	reward = endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+	init(state, actions, &endIdx, &reward);
 
 	output = PyTuple_New(4);
 	PyTuple_SetItem(output, 0, stateToPy(state));
@@ -788,8 +920,8 @@ static PyObject* __init(PyObject *self, PyObject *args){
 }
 
 static PyObject* __play(PyObject *self, PyObject *args){
-	int state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*5], action[5];
-	int endIdx, reward;
+	char state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE], action[ACTION_SIZE];
+	int endIdx, reward, duration;
 	PyObject *output;
 	PyObject *pyState, *pyAction, *pyDuration;
 	pyState = PyTuple_GetItem(args, 0);
@@ -798,11 +930,9 @@ static PyObject* __play(PyObject *self, PyObject *args){
 
 	stateFromPy(pyState, state);
 	actionFromPy(pyAction, action);
+	duration = PyLong_AsLong(pyDuration);
 	
-	performAction(state, action);
-	allActions(state, actions);
-	endIdx = checkGameEnd(state, actions, PyLong_AsLong(pyDuration));
-	reward = endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+	play(state, action, duration, actions, &endIdx, &reward);
 
 	output = PyTuple_New(4);
 	PyTuple_SetItem(output, 0, stateToPy(state));
@@ -814,10 +944,9 @@ static PyObject* __play(PyObject *self, PyObject *args){
 
 
 static PyObject* __playRandomTillEnd(PyObject *self, PyObject *args){
-	int state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*5], *action;
+	char state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE], *action;
 	int endIdx, reward, i;
-	PyObject *output;
-	PyObject *pyState;
+	PyObject *output=NULL, *pyState=NULL;
 	pyState = PyTuple_GetItem(args, 0);
 
 	stateFromPy(pyState, state);
@@ -825,8 +954,8 @@ static PyObject* __playRandomTillEnd(PyObject *self, PyObject *args){
 	endIdx = checkGameEnd(state, actions, 0);
 	
 	while(endIdx==-1){
-		for(i=0; actions[i*5]!=-1; i++);
-		action = &actions[(rand()%i)*5];
+		for(i=0; actions[i*ACTION_SIZE]!=-1; i++);
+		action = &actions[(rand()%i)*ACTION_SIZE];
 		
 		performAction(state, action);
 		allActions(state, actions);
@@ -843,6 +972,10 @@ static PyObject* __playRandomTillEnd(PyObject *self, PyObject *args){
 }
 
 static PyMethodDef cengineMethods[] = {
+    {"actionIndex",  __actionIndex, METH_VARARGS, "Convert action to index"},
+    {"actionFromIndex",  __actionFromIndex, METH_VARARGS, "Get action from index"},
+    {"stateIndex",  __stateIndex, METH_VARARGS, "Convert state to index"},
+    {"stateFromIndex",  __stateFromIndex, METH_VARARGS, "Get state to index"},
     {"kingAttacked",  __kingAttacked, METH_VARARGS, "Check if the current players king is under check"},
     {"positionAllowedMoves",  __positionAllowedMoves, METH_VARARGS, "Get all possible positions from the given box."},
     {"init",  __init, METH_VARARGS, "Initialize the game."},
@@ -863,6 +996,7 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	int i;
 	PyObject *module;
 	PyObject *promotions, *kingLine, *pawnDirection, *pawnDirection2, *pawnNormalMove, *opponent, *scoring;
+	PyObject *white, *black, *val;
 	module = PyModule_Create(&cengineModule);
 	PyModule_AddIntConstant(module, "BOARD_SIZE", BOARD_SIZE);
 	PyModule_AddIntConstant(module, "MAX_GAME_STEPS", MAX_GAME_STEPS);
@@ -879,6 +1013,8 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	PyModule_AddIntConstant(module, "RIGHT_CASTLE", RIGHT_CASTLE);
 	PyModule_AddIntConstant(module, "MAX_POSSIBLE_MOVES", MAX_POSSIBLE_MOVES);
 
+	white = PyLong_FromLong(WHITE_IDX);
+	black = PyLong_FromLong(BLACK_IDX);
 
 	promotions = PyTuple_New(LEN(PROMOTIONS));
 	for(i=0; i<LEN(PROMOTIONS); i++){
@@ -895,8 +1031,8 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	
 
 	kingLine = PyDict_New();
-	PyDict_SetItem(kingLine, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(0));
-	PyDict_SetItem(kingLine, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(BOARD_SIZE-1));
+	val = PyLong_FromLong(0);	PyDict_SetItem(kingLine, white, PyLong_FromLong(0));			Py_XDECREF(val);
+	val = PyLong_FromLong(0);	PyDict_SetItem(kingLine, black, PyLong_FromLong(BOARD_SIZE-1));	Py_XDECREF(val);
 	PyModule_AddObject(module, "KING_LINE", kingLine);
 	
 
@@ -906,27 +1042,28 @@ PyMODINIT_FUNC PyInit_cengine(void){
 	for(i=1; i<LEN(PAWN_NORMAL_MOVE); i++){
 		PyTuple_SetItem(pawnDirection2, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
 	}
-	PyDict_SetItem(pawnDirection, PyLong_FromLong(WHITE_IDX), pawnDirection2);
+	PyDict_SetItem(pawnDirection, white, pawnDirection2);	Py_XDECREF(pawnDirection2);
 	pawnDirection2 = PyTuple_New(LEN(PAWN_NORMAL_MOVE));
 	PyTuple_SetItem(pawnDirection2, 0, PyLong_FromLong(PAWN_DIRECTION(BLACK_IDX)));
 	for(i=1; i<LEN(PAWN_NORMAL_MOVE); i++){
 		PyTuple_SetItem(pawnDirection2, i, PyLong_FromLong(PAWN_NORMAL_MOVE[i]));
 	}
-	PyDict_SetItem(pawnDirection, PyLong_FromLong(BLACK_IDX), pawnDirection2);
+	PyDict_SetItem(pawnDirection, black, pawnDirection2);	Py_XDECREF(pawnDirection2);
 	PyModule_AddObject(module, "PAWN_DIRECTION", pawnDirection);
 	
 
 	opponent = PyDict_New();
-	PyDict_SetItem(opponent, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(OPPONENT(WHITE_IDX)));
-	PyDict_SetItem(opponent, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(OPPONENT(BLACK_IDX)));
+	val = PyLong_FromLong(OPPONENT(WHITE_IDX));	PyDict_SetItem(opponent, white, PyLong_FromLong(OPPONENT(WHITE_IDX)));	Py_XDECREF(val);
+	val = PyLong_FromLong(OPPONENT(BLACK_IDX));	PyDict_SetItem(opponent, black, PyLong_FromLong(OPPONENT(BLACK_IDX)));	Py_XDECREF(val);
 	PyModule_AddObject(module, "OPPONENT", opponent);
 	
 
 	scoring = PyDict_New();
-	PyDict_SetItem(scoring, PyLong_FromLong(WHITE_IDX), PyLong_FromLong(SCORING(WHITE_IDX)));
-	PyDict_SetItem(scoring, PyLong_FromLong(BLACK_IDX), PyLong_FromLong(SCORING(BLACK_IDX)));
+	val = PyLong_FromLong(SCORING(WHITE_IDX));	PyDict_SetItem(scoring, white, PyLong_FromLong(SCORING(WHITE_IDX)));	Py_XDECREF(val);
+	val = PyLong_FromLong(SCORING(BLACK_IDX));	PyDict_SetItem(scoring, black, PyLong_FromLong(SCORING(BLACK_IDX)));	Py_XDECREF(val);
 	PyModule_AddObject(module, "SCORING", scoring);
 
-
+	Py_XDECREF(white);
+	Py_XDECREF(black);
     return module;
 }

@@ -2,7 +2,7 @@ from copy import deepcopy
 import random
 
 BOARD_SIZE = 8
-MAX_GAME_STEPS = 160
+MAX_GAME_STEPS = 200
 WHITE_IDX = 0
 BLACK_IDX = 1
 OPPONENT = {BLACK_IDX:WHITE_IDX, WHITE_IDX:BLACK_IDX}
@@ -48,6 +48,92 @@ def ADDL(l1, l2):
 def MULTIPLYL(l1, l2):
 	assert len(l1) == len(l2)
 	return tuple(l1[i]*l2[i] for i in range(len(l1)))
+
+	
+def actionIndex(move):
+	if move is None:
+		return None
+	currentPos = move[0]
+	newPos = move[1]
+
+	if len(newPos) > 2:			# promotion
+		promotion = PROMOTIONS.index(newPos[2])
+		newPawnLinearPos = (newPos[0] // (BOARD_SIZE - 1)) * BOARD_SIZE + newPos[1]
+		idx = (newPawnLinearPos * BOARD_SIZE + currentPos[1]) * len(PROMOTIONS) + promotion
+
+		idx = idx + 1 + (BOARD_SIZE**4)
+	else:
+		currentLinearPos = currentPos[0] * BOARD_SIZE + currentPos[1]
+		newLinearPos = newPos[0] * BOARD_SIZE + newPos[1]
+		idx = newLinearPos * (BOARD_SIZE**2) + currentLinearPos
+
+	return idx
+	
+def actionFromIndex(idx):
+	if idx < (BOARD_SIZE**4):
+		currentLinearPos = idx % (BOARD_SIZE * BOARD_SIZE)
+		currentPos = (currentLinearPos // BOARD_SIZE, currentLinearPos % BOARD_SIZE)
+		
+		idx = idx // (BOARD_SIZE**2)
+		newLinearPos = idx % (BOARD_SIZE * BOARD_SIZE)
+		newPos = (newLinearPos // BOARD_SIZE, newLinearPos % BOARD_SIZE)
+	else:
+		idx = idx - 1 - (BOARD_SIZE**4)
+
+		promotion = PROMOTIONS[idx % len(PROMOTIONS)]
+		idx = idx // len(PROMOTIONS)
+
+		currentPosCol = idx % BOARD_SIZE
+		idx = idx // BOARD_SIZE
+		newPosCol = idx % BOARD_SIZE
+		idx = idx // BOARD_SIZE
+		newPosRow = idx * (BOARD_SIZE - 1)
+		currentPosRow = abs(newPosRow - 1)
+
+		currentPos = (currentPosRow, currentPosCol)
+		newPos = (newPosRow, newPosCol, promotion)
+
+	return (currentPos, newPos)
+
+def stateIndex(state):
+	if state is None:
+		return None
+
+	idx =  "".join([str(box) for playerBoard in state["BOARD"] for row in playerBoard for box in row])
+	sIdx = (str(state["EN_PASSANT"][WHITE_IDX]), str(state["EN_PASSANT"][BLACK_IDX])
+		, str(state["CASTLING_AVAILABLE"][WHITE_IDX][LEFT_CASTLE]) 
+		, str(state["CASTLING_AVAILABLE"][WHITE_IDX][RIGHT_CASTLE])
+		, str(state["CASTLING_AVAILABLE"][BLACK_IDX][LEFT_CASTLE]) 
+		, str(state["CASTLING_AVAILABLE"][BLACK_IDX][RIGHT_CASTLE])
+		, str(state["PLAYER"]))
+
+	return idx + ",".join(sIdx)
+
+def stateFromIndex(idx):
+	state = {}
+	boardIdx = [int(x) for x in idx[:2*BOARD_SIZE*BOARD_SIZE]]
+	stateIdx = [int(x) for x in idx[2*BOARD_SIZE*BOARD_SIZE:].split(",")]
+
+	state["BOARD"] = []
+	for p in range(2):
+		state["BOARD"].append([])
+		for i in range(BOARD_SIZE):
+			rowIdx = p*BOARD_SIZE*BOARD_SIZE + i*BOARD_SIZE
+			state["BOARD"][p].append(boardIdx[rowIdx:rowIdx + BOARD_SIZE])
+
+	state["EN_PASSANT"] = {}
+	state["EN_PASSANT"][WHITE_IDX] = stateIdx[0]
+	state["EN_PASSANT"][BLACK_IDX] = stateIdx[1]
+
+	state["CASTLING_AVAILABLE"] = {WHITE_IDX:{}, BLACK_IDX:{}}
+	state["CASTLING_AVAILABLE"][WHITE_IDX][LEFT_CASTLE] = stateIdx[2]
+	state["CASTLING_AVAILABLE"][WHITE_IDX][RIGHT_CASTLE] = stateIdx[3]
+	state["CASTLING_AVAILABLE"][BLACK_IDX][LEFT_CASTLE] = stateIdx[4]
+	state["CASTLING_AVAILABLE"][BLACK_IDX][RIGHT_CASTLE] = stateIdx[5]
+
+	state["PLAYER"] = stateIdx[6]
+
+	return state
 
 
 def initializeGame():

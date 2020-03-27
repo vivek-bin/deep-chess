@@ -37,7 +37,6 @@ class HiddenPrints:
 # game constants
 ENGINE_TYPE = "C"		#C or PY
 MC_SEARCH_MOVE = True
-NUM_SIMULATIONS = 800
 DISPLAY_TEXT_BOARD = True
 DISPLAY_TK_BOARD = False
 PLAY_MOVES = True
@@ -60,21 +59,21 @@ IMAGE_SIZE = 60
 
 ###model parameters
 EMBEDDING_SIZE = 8
-MODEL_DEPTH = 40
+MODEL_DEPTH = 20
 BOARD_HISTORY = 4
 SCORE_DECAY = 0.9
 
 L2_REGULARISATION = 1e-4
 CONV_DATA_FORMAT = "channels_last"
+CONV_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
 NUM_FILTERS = 128
 CONV_SIZE = 3
 
 ###training parameters
-MC_EXPLORATION_CONST = 0.5
 DATA_PARTITIONS = 1000
 TRAIN_SPLIT_PCT = 0.90
-BATCH_SIZE = 32
+BATCH_SIZE = 64
 NUM_EPOCHS = 10
 VALIDATION_SPLIT_PCT = 0.1
 LEARNING_RATE = 0.002

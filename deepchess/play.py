@@ -13,6 +13,7 @@ from . import trainmodel as TM
 import copy
 import gc
 import psutil
+from guppy import hpy
 
 moveList = []
 
@@ -30,47 +31,37 @@ def printBoard(state):
 	print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
 	print(CONST.LAPSED_TIME())
 
-def playGame(n=None):
+def playGame():
 	global moveList
 	history = []
+	root = None
 
 	state, actions, end, reward = EG.init()
 	if CONST.PLAY_MOVES:
 		printBoard(state)
 	if CONST.MC_SEARCH_MOVE:
 		model = TM.loadModel(loadForTraining=False)
-		root = SE.initTree(state, actions, end, reward, history, model, n)
 	
+	h = hpy()
 	while not end:
 		if moveList:
 			action = moveList.pop(0)
-			policy = None
-			value = None
 			root = None
 		elif CONST.MC_SEARCH_MOVE:
 			if root is None:
-				root = SE.initTree(state, actions, end, reward, history, model, n)
+				print("creating new tree")
+				root = SE.initTree(state=state, actions=actions, end=end, reward=reward, history=history, model=model, dataPath=CONST.DATA)
 
-			if len(history)%100 == 0:
-				print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
-				root.trimTree()
-				gc.collect()
-				print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
-
-			bestChild, action, value, policy = SE.searchTree(root)
-			root.saveNodeInfo()
-			root = bestChild
+			root, action = SE.searchTree(root)
 		else:
 			action = actions[int(random.random()*len(actions))]
-			policy = None
-			value = None
 			root = None
 		
 		gc.collect()
 
 		nextState, actions, end, reward = EG.play(state, action, len(history))
 
-		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward, STATE_VALUE=value, STATE_POLICY=policy))
+		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
 		state = nextState
 		if CONST.PLAY_MOVES:
 			print("move number :", len(history))
