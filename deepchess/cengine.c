@@ -1,74 +1,4 @@
-#include <Python.h>
-
-#define BOARD_SIZE 8
-#define WHITE_IDX 0
-#define BLACK_IDX 1
-
-#define EMPTY 0
-#define PAWN 1
-#define BISHOP 2
-#define KNIGHT 3
-#define ROOK 4
-#define QUEEN 5
-#define KING 6
-
-#define LEFT_CASTLE 0
-#define RIGHT_CASTLE 1
-
-#define MAX_PIECE_MOVES (4*(BOARD_SIZE-1) + 1)
-#define MAX_AVAILABLE_MOVES (4*(BOARD_SIZE-1)*2*BOARD_SIZE + 1)
-#define STATE_SIZE (2*BOARD_SIZE*BOARD_SIZE + 4 + 2 + 1)
-#define MAX_GAME_STEPS 200
-
-#define LEN(x) (sizeof(x)/sizeof(x[0]))
-#define OPPONENT(x) (x==WHITE_IDX?BLACK_IDX:WHITE_IDX)
-#define SCORING(x) (x==WHITE_IDX?1:-1)
-#define KING_LINE(x) (x==WHITE_IDX?0:BOARD_SIZE - 1)
-#define PAWN_DIRECTION(x) (x==WHITE_IDX?1:-1)
-#define IS_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?1:0)
-#define IS_NOT_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?0:1)
-#define CASTLE_MOVES(p, s) (p==WHITE_IDX?(s==LEFT_CASTLE?CASTLE_WHITE_LEFT:CASTLE_WHITE_RIGHT):(s==LEFT_CASTLE?CASTLE_BLACK_LEFT:CASTLE_BLACK_RIGHT))
-#define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
-#define ACTION_SIZE 5
-
-static int compareState(char state[], char state2[]);
-static void copyState(char state[], char blankState[]);
-static int getBoardBox(char state[], int player, int row, int col);
-static void setBoardBox(char state[], int value, int player, int row, int col);
-static int getEnPassant(char state[], int player);
-static void setEnPassant(char state[], int value, int player);
-static int getCastling(char state[], int player, int side);
-static void setCastling(char state[], int value, int player, int side);
-static int getPlayer(char state[]);
-static void setPlayer(char state[], int value);
-static int actionIndex(char action[]);
-static void actionFromIndex(int idx, char action[]);
-
-static PyObject* stateToPy(char state[]);
-static void stateFromPy(PyObject* pyState, char state[]);
-static PyObject* actionsToPy(char positions[]);
-static void actionFromPy(PyObject* pyAction, char action[]);
-
-static void initializeBoard(char state[]);
-static void initializeCastling(char state[]);
-static void initializeGame(char state[]);
-
-static int clipSlideMoves(char state[], int player, char position[], const int direction[]);
-static int positionCheck(char state[], int player, int x, int y);
-static void positionMoves(char positions[], char state[], char position[], int player, int onlyFetchAttackSquares);
-static void positionAllowedMoves(char positions[], char state[], char position[]);
-static int positionAttacked(char state[], char position[], int player);
-static void kingPosition(char state[], int player, char position[]);
-static int kingAttacked(char state[], int player);
-static void allActions(char state[], char actions[]);
-static void performAction(char state[], char move[]);
-static int checkGameEnd(char state[], char actions[], int duration);
-static PyObject* __kingAttacked(PyObject* self, PyObject *args);
-static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args);
-static PyObject* __init(PyObject *self, PyObject *args);
-static PyObject* __play(PyObject *self, PyObject *args);
-PyMODINIT_FUNC PyInit_cengine(void);
-
+#include "ceng_common.c"
 
 const int PIECES[] = {PAWN, BISHOP, KNIGHT, ROOK, QUEEN, KING};
 const int PROMOTIONS[] = {QUEEN, ROOK, KNIGHT, BISHOP};
@@ -94,73 +24,84 @@ const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_
 const char END_MESSAGE[4][25] = {"draw,max_steps", "draw,only_kings", "draw,stalemate", "loss"};
 
 
+static void __initializeBoard(char state[]);
+static void __initializeCastling(char state[]);
+static void __initializeGame(char state[]);
 
-static int compareState(char state[], char state2[]){
-	int i;
-	for(i=0; i<STATE_SIZE; i++){
-		if(state2[i] != state[i]){
-			return 0;
-		}
-	}
-	return 1;
-}
+static int __clipSlideMoves(char state[], int player, char position[], const int direction[]);
+static int __positionCheck(char state[], int player, int x, int y);
+static void __positionMoves(char positions[], char state[], char position[], int player, int onlyFetchAttackSquares);
+static void __positionAllowedMoves(char positions[], char state[], char position[]);
+static int __positionAttacked(char state[], char position[], int player);
+static void __kingPosition(char state[], int player, char position[]);
+static int __kingAttacked(char state[], int player);
+static void __allActions(char state[], char actions[]);
+static void __performAction(char state[], char move[]);
+static int __checkGameEnd(char state[], char actions[], int duration);
+static PyObject* kingAttacked(PyObject* self, PyObject *args);
+static PyObject* positionAllowedMoves(PyObject *self, PyObject *args);
+static PyObject* init(PyObject *self, PyObject *args);
+static PyObject* play(PyObject *self, PyObject *args);
+static PyObject* playRandomTillEnd(PyObject *self, PyObject *args);
+PyMODINIT_FUNC PyInit_cengine(void);
 
-static void copyState(char state[], char blankState[]){
+
+void __copyState(char state[], char blankState[]){
 	int i;
 	for(i=0; i<STATE_SIZE; i++){
 		blankState[i] = state[i];
 	}
 }
 
-static int getBoardBox(char state[], int player, int row, int col){
+int __getBoardBox(char state[], int player, int row, int col){
 	int idx;
 	idx = player*BOARD_SIZE*BOARD_SIZE + row*BOARD_SIZE + col;
 	return state[idx];
 }
 
-static void setBoardBox(char state[], int value, int player, int row, int col){
+void __setBoardBox(char state[], int value, int player, int row, int col){
 	int idx;
 	idx = player*BOARD_SIZE*BOARD_SIZE + row*BOARD_SIZE + col;
 	state[idx] = value;
 }
 
-static int getEnPassant(char state[], int player){
+int __getEnPassant(char state[], int player){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2;
 	return state[offset + player];
 }
 
-static void setEnPassant(char state[], int value, int player){
+void __setEnPassant(char state[], int value, int player){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2;
 	state[offset + player] = value;
 }
 
-static int getCastling(char state[], int player, int side){
+int __getCastling(char state[], int player, int side){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2;
 	return state[offset + player*2 + side];
 }
 
-static void setCastling(char state[], int value, int player, int side){
+void __setCastling(char state[], int value, int player, int side){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2;
 	state[offset + player*2 + side] = value;
 }
 
-static int getPlayer(char state[]){
+int __getPlayer(char state[]){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2 + 4;
 	return state[offset];
 }
 
-static void setPlayer(char state[], int value){
+void __setPlayer(char state[], int value){
 	int offset;
 	offset = BOARD_SIZE*BOARD_SIZE*2 + 2 + 4;
 	state[offset] = value;
 }
 
-static int actionIndex(char action[]){
+int __actionIndex(char action[]){
 	int idx=0, p;
 	if(action[4]>0){
 		for(p=0; p<LEN(PROMOTIONS) && PROMOTIONS[p]!=action[4]; p++);
@@ -176,7 +117,7 @@ static int actionIndex(char action[]){
 	return idx;
 }
 
-static void actionFromIndex(int idx, char action[]){
+void __actionFromIndex(int idx, char action[]){
 	if(idx<BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE){
 		action[1] = idx % BOARD_SIZE;	idx /= BOARD_SIZE;
 		action[0] = idx % BOARD_SIZE;	idx /= BOARD_SIZE;
@@ -195,7 +136,7 @@ static void actionFromIndex(int idx, char action[]){
 	}
 }
 
-static void stateIndex(char state[], char stateIdx[]){
+void __stateIndex(char state[], char stateIdx[]){
 	int i;
 	for(i=0; i<STATE_SIZE; i++){
 		stateIdx[i] = state[i] + '0';
@@ -203,7 +144,7 @@ static void stateIndex(char state[], char stateIdx[]){
 	stateIdx[i] = '\0';
 }
 
-static void stateFromIndex(char stateIdx[], char state[]){
+void __stateFromIndex(char stateIdx[], char state[]){
 	int i;
 	for(i=0; i<STATE_SIZE; i++){
 		state[i] = stateIdx[i] - '0';
@@ -211,7 +152,7 @@ static void stateFromIndex(char stateIdx[], char state[]){
 }
 
 
-static PyObject* stateToPy(char state[]){
+PyObject* __stateToPy(char state[]){
 	PyObject *pyState, *board, *boardPlayer, *boardRow, *castling, *castlingPlayer, *enPassant, *player;
 	PyObject *white, *black, *left, *right, *v;
 	int i, j, k;
@@ -222,7 +163,7 @@ static PyObject* stateToPy(char state[]){
 		for(j=0; j<BOARD_SIZE; j++){
 			boardRow = PyList_New(BOARD_SIZE);
 			for(k=0; k<BOARD_SIZE; k++){
-				PyList_SetItem(boardRow, k, PyLong_FromLong(getBoardBox(state, i, j, k)));
+				PyList_SetItem(boardRow, k, PyLong_FromLong(__getBoardBox(state, i, j, k)));
 			}
 			PyList_SetItem(boardPlayer, j, boardRow);
 		}
@@ -235,20 +176,20 @@ static PyObject* stateToPy(char state[]){
 	right = PyLong_FromLong(RIGHT_CASTLE);
 
 	enPassant = PyDict_New();
-	v = PyLong_FromLong(getEnPassant(state, WHITE_IDX));	PyDict_SetItem(enPassant, white, v);	Py_XDECREF(v);
-	v = PyLong_FromLong(getEnPassant(state, BLACK_IDX));	PyDict_SetItem(enPassant, black, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(__getEnPassant(state, WHITE_IDX));	PyDict_SetItem(enPassant, white, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(__getEnPassant(state, BLACK_IDX));	PyDict_SetItem(enPassant, black, v);	Py_XDECREF(v);
 
 	castling = PyDict_New();
 	castlingPlayer = PyDict_New();
-	v = PyLong_FromLong(getCastling(state, WHITE_IDX, LEFT_CASTLE));	PyDict_SetItem(castlingPlayer, left, v);	Py_XDECREF(v);
-	v = PyLong_FromLong(getCastling(state, WHITE_IDX, RIGHT_CASTLE));	PyDict_SetItem(castlingPlayer, right, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(__getCastling(state, WHITE_IDX, LEFT_CASTLE));	PyDict_SetItem(castlingPlayer, left, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(__getCastling(state, WHITE_IDX, RIGHT_CASTLE));	PyDict_SetItem(castlingPlayer, right, v);	Py_XDECREF(v);
 	PyDict_SetItem(castling, white, castlingPlayer);Py_XDECREF(castlingPlayer);
 	castlingPlayer = PyDict_New();
-	v = PyLong_FromLong(getCastling(state, BLACK_IDX, LEFT_CASTLE));	PyDict_SetItem(castlingPlayer, left, v);	Py_XDECREF(v);
-	v = PyLong_FromLong(getCastling(state, BLACK_IDX, RIGHT_CASTLE));	PyDict_SetItem(castlingPlayer, right, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(__getCastling(state, BLACK_IDX, LEFT_CASTLE));	PyDict_SetItem(castlingPlayer, left, v);	Py_XDECREF(v);
+	v = PyLong_FromLong(__getCastling(state, BLACK_IDX, RIGHT_CASTLE));	PyDict_SetItem(castlingPlayer, right, v);	Py_XDECREF(v);
 	PyDict_SetItem(castling, black, castlingPlayer);Py_XDECREF(castlingPlayer);
 	
-	player = PyLong_FromLong(getPlayer(state));
+	player = PyLong_FromLong(__getPlayer(state));
 	
 	pyState = PyDict_New();
 	PyDict_SetItemString(pyState, "BOARD", board);
@@ -268,7 +209,7 @@ static PyObject* stateToPy(char state[]){
 	return pyState;
 }
 
-static void stateFromPy(PyObject* pyState, char state[]){
+void __stateFromPy(PyObject* pyState, char state[]){
 	PyObject *board=NULL, *castling=NULL, *enPassant=NULL, *player=NULL, *item=NULL;
 	PyObject *white=NULL, *black=NULL, *leftCastle=NULL, *rightCastle=NULL;
 	int i, j, k;
@@ -282,7 +223,7 @@ static void stateFromPy(PyObject* pyState, char state[]){
 		for(j=0; j<BOARD_SIZE; j++){
 			for(k=0; k<BOARD_SIZE; k++){
 				item = PyList_GetItem(PyList_GetItem(PyList_GetItem(board, i), j), k);
-				setBoardBox(state, PyLong_AsLong(item), i, j, k);
+				__setBoardBox(state, PyLong_AsLong(item), i, j, k);
 			}
 		}
 	}
@@ -292,20 +233,20 @@ static void stateFromPy(PyObject* pyState, char state[]){
 	leftCastle = PyLong_FromLong(LEFT_CASTLE);
 	rightCastle = PyLong_FromLong(RIGHT_CASTLE);
 
-	setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, white)), WHITE_IDX);
-	setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, black)), BLACK_IDX);
+	__setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, white)), WHITE_IDX);
+	__setEnPassant(state, PyLong_AsLong(PyDict_GetItem(enPassant, black)), BLACK_IDX);
 
-	item = PyDict_GetItem(PyDict_GetItem(castling, white), leftCastle);		setCastling(state, PyLong_AsLong(item), WHITE_IDX, LEFT_CASTLE);
-	item = PyDict_GetItem(PyDict_GetItem(castling, white), rightCastle);	setCastling(state, PyLong_AsLong(item), WHITE_IDX, RIGHT_CASTLE);
-	item = PyDict_GetItem(PyDict_GetItem(castling, black), leftCastle);		setCastling(state, PyLong_AsLong(item), BLACK_IDX, LEFT_CASTLE);
-	item = PyDict_GetItem(PyDict_GetItem(castling, black), rightCastle);	setCastling(state, PyLong_AsLong(item), BLACK_IDX, RIGHT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, white), leftCastle);		__setCastling(state, PyLong_AsLong(item), WHITE_IDX, LEFT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, white), rightCastle);	__setCastling(state, PyLong_AsLong(item), WHITE_IDX, RIGHT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, black), leftCastle);		__setCastling(state, PyLong_AsLong(item), BLACK_IDX, LEFT_CASTLE);
+	item = PyDict_GetItem(PyDict_GetItem(castling, black), rightCastle);	__setCastling(state, PyLong_AsLong(item), BLACK_IDX, RIGHT_CASTLE);
 
-	setPlayer(state, PyLong_AsLong(player));
+	__setPlayer(state, PyLong_AsLong(player));
 
 	Py_XDECREF(white);Py_XDECREF(black);Py_XDECREF(leftCastle);Py_XDECREF(rightCastle);
 }
 
-static PyObject* actionsToPy(char positions[]){
+PyObject* __actionsToPy(char positions[]){
 	PyObject *pyActions, *move, *oldPos, *newPos;
 	int i, tot;
 
@@ -338,7 +279,7 @@ static PyObject* actionsToPy(char positions[]){
 	return pyActions;
 }
 
-static void actionFromPy(PyObject* pyAction, char action[]){
+void __actionFromPy(PyObject* pyAction, char action[]){
 	PyObject *pos=NULL;
 
 	pos = PyTuple_GetItem(pyAction, 0);
@@ -353,83 +294,83 @@ static void actionFromPy(PyObject* pyAction, char action[]){
 
 
 
-static void initializeBoard(char state[]){
+static void __initializeBoard(char state[]){
 	int i, j, k;
 	for(i=0; i<2; i++){
 		for(j=0; j<BOARD_SIZE; j++){
 			for(k=0; k<BOARD_SIZE; k++){
-				setBoardBox(state, EMPTY, i, j, k);
+				__setBoardBox(state, EMPTY, i, j, k);
 			}
 		}	
 	}
 	
 	for(i=0; i<BOARD_SIZE; i++){
-		setBoardBox(state, TOP_LINE[i], WHITE_IDX, KING_LINE(WHITE_IDX), i);
-		setBoardBox(state, TOP_LINE[i], BLACK_IDX, KING_LINE(BLACK_IDX), i);
-		setBoardBox(state, PAWN, WHITE_IDX, KING_LINE(WHITE_IDX) + PAWN_DIRECTION(WHITE_IDX), i);
-		setBoardBox(state, PAWN, BLACK_IDX, KING_LINE(BLACK_IDX) + PAWN_DIRECTION(BLACK_IDX), i);
+		__setBoardBox(state, TOP_LINE[i], WHITE_IDX, KING_LINE(WHITE_IDX), i);
+		__setBoardBox(state, TOP_LINE[i], BLACK_IDX, KING_LINE(BLACK_IDX), i);
+		__setBoardBox(state, PAWN, WHITE_IDX, KING_LINE(WHITE_IDX) + PAWN_DIRECTION(WHITE_IDX), i);
+		__setBoardBox(state, PAWN, BLACK_IDX, KING_LINE(BLACK_IDX) + PAWN_DIRECTION(BLACK_IDX), i);
 	}
 }
 
-static void initializeCastling(char state[]){
-	setCastling(state, 0, WHITE_IDX, LEFT_CASTLE);
-	setCastling(state, 0, WHITE_IDX, RIGHT_CASTLE);
-	setCastling(state, 0, BLACK_IDX, LEFT_CASTLE);
-	setCastling(state, 0, BLACK_IDX, RIGHT_CASTLE);
-	if(getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), CASTLE_MOVES(WHITE_IDX, LEFT_CASTLE)[0][1]) == KING){
-		if(getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), 0) == ROOK){
-			setCastling(state, 1, WHITE_IDX, LEFT_CASTLE);
+static void __initializeCastling(char state[]){
+	__setCastling(state, 0, WHITE_IDX, LEFT_CASTLE);
+	__setCastling(state, 0, WHITE_IDX, RIGHT_CASTLE);
+	__setCastling(state, 0, BLACK_IDX, LEFT_CASTLE);
+	__setCastling(state, 0, BLACK_IDX, RIGHT_CASTLE);
+	if(__getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), CASTLE_MOVES(WHITE_IDX, LEFT_CASTLE)[0][1]) == KING){
+		if(__getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), 0) == ROOK){
+			__setCastling(state, 1, WHITE_IDX, LEFT_CASTLE);
 		}
-		if(getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), BOARD_SIZE - 1) == ROOK){
-			setCastling(state, 1, WHITE_IDX, RIGHT_CASTLE);
+		if(__getBoardBox(state, WHITE_IDX, KING_LINE(WHITE_IDX), BOARD_SIZE - 1) == ROOK){
+			__setCastling(state, 1, WHITE_IDX, RIGHT_CASTLE);
 		}
 	}
-	if(getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), CASTLE_MOVES(BLACK_IDX, LEFT_CASTLE)[0][1]) == KING){
-		if(getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), 0) == ROOK){
-			setCastling(state, 1, BLACK_IDX, LEFT_CASTLE);
+	if(__getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), CASTLE_MOVES(BLACK_IDX, LEFT_CASTLE)[0][1]) == KING){
+		if(__getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), 0) == ROOK){
+			__setCastling(state, 1, BLACK_IDX, LEFT_CASTLE);
 		}
-		if(getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), BOARD_SIZE - 1) == ROOK){
-			setCastling(state, 1, BLACK_IDX, RIGHT_CASTLE);
+		if(__getBoardBox(state, BLACK_IDX, KING_LINE(BLACK_IDX), BOARD_SIZE - 1) == ROOK){
+			__setCastling(state, 1, BLACK_IDX, RIGHT_CASTLE);
 		}
 	}
 }
 
-static void initializeGame(char state[]){
-	initializeBoard(state);
-	initializeCastling(state);
-	setEnPassant(state, -1, WHITE_IDX);setEnPassant(state, -1, BLACK_IDX);
-	setPlayer(state, WHITE_IDX);
+static void __initializeGame(char state[]){
+	__initializeBoard(state);
+	__initializeCastling(state);
+	__setEnPassant(state, -1, WHITE_IDX);__setEnPassant(state, -1, BLACK_IDX);
+	__setPlayer(state, WHITE_IDX);
 }
 
 
 
-static int clipSlideMoves(char state[], int player, char position[], const int direction[]){
+static int __clipSlideMoves(char state[], int player, char position[], const int direction[]){
 	int x,y; 
 	int move;
 	move = 1;
 	while(1){
 		x = position[0] + move*direction[0];
 		y = position[1] + move*direction[1];
-		if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(state, player, x, y) != EMPTY){
+		if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || __getBoardBox(state, player, x, y) != EMPTY){
 			break;
 		}
 		++move;
-		if(getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
+		if(__getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 			break;
 		}
 	}
 	return move - 1;
 }
 
-static int positionCheck(char state[], int player, int x, int y){
-	if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || getBoardBox(state, player, x, y) != EMPTY){
+static int __positionCheck(char state[], int player, int x, int y){
+	if(IS_NOT_VALID_IDX(x) || IS_NOT_VALID_IDX(y) || __getBoardBox(state, player, x, y) != EMPTY){
 		return -1;
 	}
 
-	return getBoardBox(state, OPPONENT(player), x, y);
+	return __getBoardBox(state, OPPONENT(player), x, y);
 }
 
-static void positionMoves(char positions[], char state[], char position[], int player, int onlyFetchAttackSquares){
+static void __positionMoves(char positions[], char state[], char position[], int player, int onlyFetchAttackSquares){
 	int box;
 	int i, j, x, y;
 	int posI;
@@ -438,7 +379,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 	char pos[2];
 
 	posI=-1;
-	box = getBoardBox(state, player, position[0], position[1]);
+	box = __getBoardBox(state, player, position[0], position[1]);
 	for(i=0; i<MAX_PIECE_MOVES*3; i++){
 		positions[i] = -1;
 	}
@@ -448,7 +389,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 		case BISHOP:
 			for(i=0;i<4;i++){
 				direction = MOVE_DIRECTIONS_BISHOP[i];
-				clipLim = clipSlideMoves(state, player, position, direction);
+				clipLim = __clipSlideMoves(state, player, position, direction);
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
@@ -459,7 +400,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 		case ROOK:
 			for(i=0;i<4;i++){
 				direction = MOVE_DIRECTIONS_ROOK[i];
-				clipLim = clipSlideMoves(state, player, position, direction);
+				clipLim = __clipSlideMoves(state, player, position, direction);
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
@@ -470,7 +411,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 		case QUEEN:
 			for(i=0;i<8;i++){
 				direction = MOVE_DIRECTIONS_QUEEN[i];
-				clipLim = clipSlideMoves(state, player, position, direction);
+				clipLim = __clipSlideMoves(state, player, position, direction);
 				for(j=1; j<=clipLim; j++){
 					positions[++posI] = position[0] + j*direction[0];
 					positions[++posI] = position[1] + j*direction[1];
@@ -482,7 +423,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 			for(i=0;i<8;i++){
 				x = position[0] + KNIGHT_MOVES[i][0];
 				y = position[1] + KNIGHT_MOVES[i][1];
-				if(positionCheck(state, player, x, y)>=0){
+				if(__positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
 					positions[++posI] = 0;
@@ -493,26 +434,26 @@ static void positionMoves(char positions[], char state[], char position[], int p
 			for(i=0;i<8;i++){
 				x = position[0] + KING_MOVES[i][0];
 				y = position[1] + KING_MOVES[i][1];
-				if(positionCheck(state, player, x, y)>=0){
+				if(__positionCheck(state, player, x, y)>=0){
 					positions[++posI] = x;
 					positions[++posI] = y;
 					positions[++posI] = 0;
 				}
 			}
 			if(onlyFetchAttackSquares == 0){
-				if(getCastling(state, player, LEFT_CASTLE)){
+				if(__getCastling(state, player, LEFT_CASTLE)){
 					flag = 1;
 					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
 						y = CASTLE_MOVES(player, LEFT_CASTLE)[i][1];
-						if(getBoardBox(state, player, x, y) != EMPTY || getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
+						if(__getBoardBox(state, player, x, y) != EMPTY || __getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 							flag = 0;break;
 						}
 					}
 					for(i=0;flag && i<3;i++){
 						pos[0] = CASTLE_MOVES(player, LEFT_CASTLE)[i][0];
 						pos[1] = CASTLE_MOVES(player, LEFT_CASTLE)[i][1];
-						if(positionAttacked(state, pos, player)){
+						if(__positionAttacked(state, pos, player)){
 							flag = 0;break;
 						}
 					}
@@ -522,19 +463,19 @@ static void positionMoves(char positions[], char state[], char position[], int p
 						positions[++posI] = 0;
 					}
 				}
-				if(getCastling(state, player, RIGHT_CASTLE)){
+				if(__getCastling(state, player, RIGHT_CASTLE)){
 					flag = 1;
 					for(i=1;i<3;i++){
 						x = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
 						y = CASTLE_MOVES(player, RIGHT_CASTLE)[i][1];
-						if(getBoardBox(state, player, x, y) != EMPTY || getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
+						if(__getBoardBox(state, player, x, y) != EMPTY || __getBoardBox(state, OPPONENT(player), x, y) != EMPTY){
 							flag = 0;break;
 						}
 					}
 					for(i=0;flag && i<3;i++){
 						pos[0] = CASTLE_MOVES(player, RIGHT_CASTLE)[i][0];
 						pos[1] = CASTLE_MOVES(player, RIGHT_CASTLE)[i][1];
-						if(positionAttacked(state, pos, player)){
+						if(__positionAttacked(state, pos, player)){
 							flag = 0;break;
 						}
 					}
@@ -550,7 +491,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 			for(i=0;i<2;i++){
 				x = position[0] + PAWN_CAPTURE_MOVES[i][0]*PAWN_DIRECTION(player);
 				y = position[1] + PAWN_CAPTURE_MOVES[i][1];
-				temp = positionCheck(state, player, x, y);
+				temp = __positionCheck(state, player, x, y);
 				if(temp>0){
 					if(onlyFetchAttackSquares==0 && x==KING_LINE(OPPONENT(player))){
 						positions[++posI] = x;
@@ -570,7 +511,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 						positions[++posI] = y;
 						positions[++posI] = 0;
 					}
-				}else if(temp==0 && getEnPassant(state, OPPONENT(player))==y && getBoardBox(state, OPPONENT(player), position[0], y)==PAWN){
+				}else if(temp==0 && __getEnPassant(state, OPPONENT(player))==y && __getBoardBox(state, OPPONENT(player), position[0], y)==PAWN){
 					if(KING_LINE(OPPONENT(player)) + ((1+2)*PAWN_DIRECTION(OPPONENT(player))) == position[0]){
 						positions[++posI] = x;
 						positions[++posI] = y;
@@ -581,7 +522,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 			if(onlyFetchAttackSquares==0){
 				x = position[0] + PAWN_NORMAL_MOVE[0]*PAWN_DIRECTION(player);
 				y = position[1] + PAWN_NORMAL_MOVE[1];
-				if(positionCheck(state, player, x, y)==0){
+				if(__positionCheck(state, player, x, y)==0){
 					if(x==KING_LINE(OPPONENT(player))){
 						positions[++posI] = x;
 						positions[++posI] = y;
@@ -603,7 +544,7 @@ static void positionMoves(char positions[], char state[], char position[], int p
 						if(position[0]==KING_LINE(player) + PAWN_DIRECTION(player)){
 							x = position[0] + PAWN_FIRST_MOVE[0]*PAWN_DIRECTION(player);
 							y = position[1] + PAWN_FIRST_MOVE[1];
-							if(positionCheck(state, player, x, y)==0){
+							if(__positionCheck(state, player, x, y)==0){
 								positions[++posI] = x;
 								positions[++posI] = y;
 								positions[++posI] = 0;
@@ -618,11 +559,11 @@ static void positionMoves(char positions[], char state[], char position[], int p
 	}
 }
 
-static void positionAllowedMoves(char positions[], char state[], char position[]){
+static void __positionAllowedMoves(char positions[], char state[], char position[]){
 	int i, j, gap;
 	char tempState[STATE_SIZE], move[ACTION_SIZE];
 
-	positionMoves(positions, state, position, getPlayer(state), 0);
+	__positionMoves(positions, state, position, __getPlayer(state), 0);
 
 	gap=0;
 	for(i=0; i<MAX_PIECE_MOVES*3; i+=3){
@@ -631,9 +572,9 @@ static void positionAllowedMoves(char positions[], char state[], char position[]
 		}
 		move[0] = position[0]; move[1] = position[1];
 		move[2] = positions[i+0]; move[3] = positions[i+1]; move[4] = positions[i+2];
-		copyState(state, tempState);
-		performAction(tempState, move);
-		if(kingAttacked(tempState, getPlayer(state))){
+		__copyState(state, tempState);
+		__performAction(tempState, move);
+		if(__kingAttacked(tempState, __getPlayer(state))){
 			gap+=3;
 			continue;
 		}
@@ -650,20 +591,20 @@ static void positionAllowedMoves(char positions[], char state[], char position[]
 	}
 }
 
-static int positionAttacked(char state[], char position[], int player){
+static int __positionAttacked(char state[], char position[], int player){
 	int originalPiece;
 	int i, j, flag;
 	char positions[MAX_PIECE_MOVES*3];
 	
-	originalPiece = getBoardBox(state, player, position[0], position[1]);
+	originalPiece = __getBoardBox(state, player, position[0], position[1]);
 
 	flag = 0;
 	for(i=0; i<6; i++){
-		setBoardBox(state, PIECES[i], player, position[0], position[1]);
-		positionMoves(positions, state, position, player, 1);
+		__setBoardBox(state, PIECES[i], player, position[0], position[1]);
+		__positionMoves(positions, state, position, player, 1);
 
 		for(j=0; positions[j]!=-1; j+=3){
-			if(getBoardBox(state, OPPONENT(player), positions[j+0], positions[j+1]) == PIECES[i]){
+			if(__getBoardBox(state, OPPONENT(player), positions[j+0], positions[j+1]) == PIECES[i]){
 				flag=1;break;
 			}
 		}
@@ -671,16 +612,16 @@ static int positionAttacked(char state[], char position[], int player){
 			break;
 		}
 	}
-	setBoardBox(state, originalPiece, player, position[0], position[1]);
+	__setBoardBox(state, originalPiece, player, position[0], position[1]);
 	return flag;
 }
 
-static void kingPosition(char state[], int player, char position[]){
+static void __kingPosition(char state[], int player, char position[]){
 	int i, j, flag;
 	flag = 0;
 	for(i=0; i<BOARD_SIZE; i++){
 		for(j=0;j<BOARD_SIZE; j++){
-			if(getBoardBox(state, player, i, j)==KING){
+			if(__getBoardBox(state, player, i, j)==KING){
 				position[0]=i;
 				position[1]=j;
 				flag=1;
@@ -696,14 +637,14 @@ static void kingPosition(char state[], int player, char position[]){
 	}
 }
 
-static int kingAttacked(char state[], int player){
+static int __kingAttacked(char state[], int player){
 	char position[2];
-	kingPosition(state, player, position);
+	__kingPosition(state, player, position);
 
-	return positionAttacked(state, position, player);
+	return __positionAttacked(state, position, player);
 }
 
-static void allActions(char state[], char actions[]){
+static void __allActions(char state[], char actions[]){
 	int i, j , k, total;
 	char position[2], positions[MAX_PIECE_MOVES*3];
 	
@@ -716,7 +657,7 @@ static void allActions(char state[], char actions[]){
 		for(j=0;j<BOARD_SIZE; j++){
 			position[0]=i;
 			position[1]=j;
-			positionAllowedMoves(positions, state, position);
+			__positionAllowedMoves(positions, state, position);
 			
 			for(k=0;positions[k]!=-1;k+=3){
 				actions[total++] = i;
@@ -729,58 +670,58 @@ static void allActions(char state[], char actions[]){
 	}
 }
 
-static void performAction(char state[], char move[]){
+static void __performAction(char state[], char move[]){
 	int player, piece, opponentPiece;
 
-	player = getPlayer(state);
-	piece = getBoardBox(state, player, move[0], move[1]);
-	opponentPiece = getBoardBox(state, OPPONENT(player), move[2], move[3]);
+	player = __getPlayer(state);
+	piece = __getBoardBox(state, player, move[0], move[1]);
+	opponentPiece = __getBoardBox(state, OPPONENT(player), move[2], move[3]);
 
-	setBoardBox(state, EMPTY, OPPONENT(player), move[2], move[3]);
-	setBoardBox(state, EMPTY, player, move[0], move[1]);
-	setBoardBox(state, piece, player, move[2], move[3]);
+	__setBoardBox(state, EMPTY, OPPONENT(player), move[2], move[3]);
+	__setBoardBox(state, EMPTY, player, move[0], move[1]);
+	__setBoardBox(state, piece, player, move[2], move[3]);
 	
-	setEnPassant(state, -1, player);
+	__setEnPassant(state, -1, player);
 
 	switch(piece){
 		case KING:
-			setCastling(state, 0, player, LEFT_CASTLE);
-			setCastling(state, 0, player, RIGHT_CASTLE);
+			__setCastling(state, 0, player, LEFT_CASTLE);
+			__setCastling(state, 0, player, RIGHT_CASTLE);
 			if(move[1] - move[3] == 2){
-				setBoardBox(state, EMPTY, player, move[0], 0);
-				setBoardBox(state, ROOK, player, move[0], move[1]-1);
+				__setBoardBox(state, EMPTY, player, move[0], 0);
+				__setBoardBox(state, ROOK, player, move[0], move[1]-1);
 			}else if(move[3] - move[1] == 2){
-				setBoardBox(state, EMPTY, player, move[0], BOARD_SIZE-1);
-				setBoardBox(state, ROOK, player, move[0], move[1]+1);
+				__setBoardBox(state, EMPTY, player, move[0], BOARD_SIZE-1);
+				__setBoardBox(state, ROOK, player, move[0], move[1]+1);
 			}
 			break;
 
 		case PAWN:
 			if(move[2]==KING_LINE(OPPONENT(player))){
-				setBoardBox(state, move[4], player, move[2], move[3]);
+				__setBoardBox(state, move[4], player, move[2], move[3]);
 			}else if(move[0]==(KING_LINE(player)+PAWN_DIRECTION(player)) && (move[0]-move[2]==2 || move[2]-move[0]==2)){
-				setEnPassant(state, move[1], player);
-			}else if(opponentPiece == EMPTY && move[3]==getEnPassant(state, OPPONENT(player))){
-				setBoardBox(state, EMPTY, OPPONENT(player), move[0], move[3]);
+				__setEnPassant(state, move[1], player);
+			}else if(opponentPiece == EMPTY && move[3]==__getEnPassant(state, OPPONENT(player))){
+				__setBoardBox(state, EMPTY, OPPONENT(player), move[0], move[3]);
 			}
 			break;
 
 		case ROOK:
-			if(move[1] == 0 && getCastling(state, player, LEFT_CASTLE)){
-				setCastling(state, 0, player, LEFT_CASTLE);
+			if(move[1] == 0 && __getCastling(state, player, LEFT_CASTLE)){
+				__setCastling(state, 0, player, LEFT_CASTLE);
 			}
-			if(move[1] == BOARD_SIZE-1 && getCastling(state, player, RIGHT_CASTLE)){
-				setCastling(state, 0, player, RIGHT_CASTLE);
+			if(move[1] == BOARD_SIZE-1 && __getCastling(state, player, RIGHT_CASTLE)){
+				__setCastling(state, 0, player, RIGHT_CASTLE);
 			}
 			break;
 
 		default:break;
 	}
 
-	setPlayer(state, OPPONENT(player));
+	__setPlayer(state, OPPONENT(player));
 }
 
-static int checkGameEnd(char state[], char actions[], int duration){
+static int __checkGameEnd(char state[], char actions[], int duration){
 	int endIdx;
 	int i,j,k,flag;
 	endIdx = -1;
@@ -793,14 +734,14 @@ static int checkGameEnd(char state[], char actions[], int duration){
 		for(i=0; i<2; i++)
 			for(j=0; j<BOARD_SIZE; j++)
 				for(k=0; k<BOARD_SIZE; k++)
-					if(getBoardBox(state, i, j, k) != EMPTY && getBoardBox(state, i, j, k) != KING)
+					if(__getBoardBox(state, i, j, k) != EMPTY && __getBoardBox(state, i, j, k) != KING)
 						flag = 0;
 		if(flag){
 			endIdx = 1;
 		}
 	}
 	if(actions[0]==-1){
-		if(kingAttacked(state, getPlayer(state))){
+		if(__kingAttacked(state, __getPlayer(state))){
 			endIdx = 3;
 		}
 		else{
@@ -810,79 +751,79 @@ static int checkGameEnd(char state[], char actions[], int duration){
 	return endIdx;
 }
 
-static void init(char state[], char actions[], int *endIdx, int *reward){
-	initializeGame(state);
-	allActions(state, actions);
-	*endIdx = checkGameEnd(state, actions, 0);
-	*reward = *endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+static void __init(char state[], char actions[], int *endIdx, int *reward){
+	__initializeGame(state);
+	__allActions(state, actions);
+	*endIdx = __checkGameEnd(state, actions, 0);
+	*reward = *endIdx==3? SCORING(OPPONENT(__getPlayer(state))): 0;
 }
 
-static void play(char state[], char action[], int duration, char actions[], int *endIdx, int *reward){
-	performAction(state, action);
-	allActions(state, actions);
-	*endIdx = checkGameEnd(state, actions, duration);
-	*reward = *endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+void __play(char state[], char action[], int duration, char actions[], int *endIdx, int *reward){
+	__performAction(state, action);
+	__allActions(state, actions);
+	*endIdx = __checkGameEnd(state, actions, duration);
+	*reward = *endIdx==3? SCORING(OPPONENT(__getPlayer(state))): 0;
 }
 
-static PyObject* __actionIndex(PyObject *self, PyObject *args){
+static PyObject* actionIndex(PyObject *self, PyObject *args){
 	char action[ACTION_SIZE];
 	PyObject *pyAction;
 
 	pyAction = PyTuple_GetItem(args, 0);
-	actionFromPy(pyAction, action);
+	__actionFromPy(pyAction, action);
 	
-	return PyLong_FromLong(actionIndex(action));
+	return PyLong_FromLong(__actionIndex(action));
 }
 
-static PyObject* __actionFromIndex(PyObject *self, PyObject *args){
+static PyObject* actionFromIndex(PyObject *self, PyObject *args){
 	char action[10]={-1, -1, -1, -1, -1, -1, -1, -1, -1, -1};
 	int idx;
 	PyObject *pyActionIdx, *pyActions, *pyAction;
 
 	pyActionIdx = PyTuple_GetItem(args, 0);
 	idx = PyLong_AsLong(pyActionIdx);
-	actionFromIndex(idx, action);
+	__actionFromIndex(idx, action);
 
-	pyActions = actionsToPy(action);
+	pyActions = __actionsToPy(action);
 	pyAction = PyTuple_GetItem(pyActions, 0);
 	Py_XINCREF(pyAction);
 	Py_XDECREF(pyActions);	
 	return pyAction;
 }
 
-static PyObject* __stateIndex(PyObject *self, PyObject *args){
+static PyObject* stateIndex(PyObject *self, PyObject *args){
 	char state[STATE_SIZE+1];
 	PyObject *pyState;
 
 	pyState = PyTuple_GetItem(args, 0);
-	stateFromPy(pyState, state);
-	stateIndex(state, state);
+	__stateFromPy(pyState, state);
+	__stateIndex(state, state);
 	
 	return PyUnicode_FromString(state);
 }
 
-static PyObject* __stateFromIndex(PyObject *self, PyObject *args){
+static PyObject* stateFromIndex(PyObject *self, PyObject *args){
 	char *state;
 	PyObject *pyStateIdx;
 
 	pyStateIdx = PyTuple_GetItem(args, 0);
 	state = PyBytes_AsString(PyUnicode_AsUTF8String(pyStateIdx));
-	stateFromIndex(state, state);
+	__stateFromIndex(state, state);
 
-	return stateToPy(state);
+	return __stateToPy(state);
 }
 
-static PyObject* __kingAttacked(PyObject* self, PyObject *args){
+static PyObject* kingAttacked(PyObject* self, PyObject *args){
 	char state[STATE_SIZE], position[2];
 	int flag;
 	PyObject *pyState, *pyOutput;
 
 	pyState = PyTuple_GetItem(args, 0);
-	stateFromPy(pyState, state);
+	__stateFromPy(pyState, state);
 
-	flag = kingAttacked(state, getPlayer(state));
+	flag = __kingAttacked(state, __getPlayer(state));
 	if(flag){
-		kingPosition(state, getPlayer(state), position);
+		__kingPosition(state, __getPlayer(state), position);
 		pyOutput = PyTuple_New(2);
 		PyTuple_SetItem(pyOutput, 0, PyLong_FromLong(position[0]));
 		PyTuple_SetItem(pyOutput, 1, PyLong_FromLong(position[1]));
@@ -893,14 +834,14 @@ static PyObject* __kingAttacked(PyObject* self, PyObject *args){
 	return pyOutput;
 }
 
-static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args){
+static PyObject* positionAllowedMoves(PyObject *self, PyObject *args){
 	char state[STATE_SIZE], position[2], positions[MAX_PIECE_MOVES*3], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE];
 	int i, j;
 	PyObject *pyState=NULL, *pyPosition=NULL, *x=NULL, *y=NULL;
 	pyState = PyTuple_GetItem(args, 0);
 	pyPosition = PyTuple_GetItem(args, 1);
 
-	stateFromPy(pyState, state);
+	__stateFromPy(pyState, state);
 	x = PyTuple_GetItem(pyPosition, 0);y = PyTuple_GetItem(pyPosition, 1);
 	position[0] = PyLong_AsLong(x);	position[1] = PyLong_AsLong(y);
 
@@ -908,7 +849,7 @@ static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args){
 		positions[i]=-1;
 	}
 
-	positionAllowedMoves(positions, state, position);
+	__positionAllowedMoves(positions, state, position);
 	for(i=0;i<MAX_PIECE_MOVES*ACTION_SIZE;i++){
 		actions[i]=-1;
 	}
@@ -920,25 +861,25 @@ static PyObject* __positionAllowedMoves(PyObject *self, PyObject *args){
 		actions[i++]=positions[j++];
 	}
 
-	return actionsToPy(actions);
+	return __actionsToPy(actions);
 }
 
-static PyObject* __init(PyObject *self, PyObject *args){
+static PyObject* init(PyObject *self, PyObject *args){
 	char state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE];
 	int endIdx, reward;
 	PyObject *output;
 
-	init(state, actions, &endIdx, &reward);
+	__init(state, actions, &endIdx, &reward);
 
 	output = PyTuple_New(4);
-	PyTuple_SetItem(output, 0, stateToPy(state));
-	PyTuple_SetItem(output, 1, actionsToPy(actions));
+	PyTuple_SetItem(output, 0, __stateToPy(state));
+	PyTuple_SetItem(output, 1, __actionsToPy(actions));
 	PyTuple_SetItem(output, 2, (endIdx>=0)?PyUnicode_FromString(END_MESSAGE[endIdx]):PyBool_FromLong(0));
 	PyTuple_SetItem(output, 3, PyLong_FromLong(reward));
 	return output;
 }
 
-static PyObject* __play(PyObject *self, PyObject *args){
+static PyObject* play(PyObject *self, PyObject *args){
 	char state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE], action[ACTION_SIZE];
 	int endIdx, reward, duration;
 	PyObject *output;
@@ -947,59 +888,58 @@ static PyObject* __play(PyObject *self, PyObject *args){
 	pyAction = PyTuple_GetItem(args, 1);
 	pyDuration = PyTuple_GetItem(args, 2);
 
-	stateFromPy(pyState, state);
-	actionFromPy(pyAction, action);
+	__stateFromPy(pyState, state);
+	__actionFromPy(pyAction, action);
 	duration = PyLong_AsLong(pyDuration);
 	
-	play(state, action, duration, actions, &endIdx, &reward);
+	__play(state, action, duration, actions, &endIdx, &reward);
 
 	output = PyTuple_New(4);
-	PyTuple_SetItem(output, 0, stateToPy(state));
-	PyTuple_SetItem(output, 1, actionsToPy(actions));
+	PyTuple_SetItem(output, 0, __stateToPy(state));
+	PyTuple_SetItem(output, 1, __actionsToPy(actions));
 	PyTuple_SetItem(output, 2, (endIdx>=0)?PyUnicode_FromString(END_MESSAGE[endIdx]):PyBool_FromLong(0));
 	PyTuple_SetItem(output, 3, PyLong_FromLong(reward));
 	return output;
 }
 
-
-static PyObject* __playRandomTillEnd(PyObject *self, PyObject *args){
+static PyObject* playRandomTillEnd(PyObject *self, PyObject *args){
 	char state[STATE_SIZE], actions[MAX_AVAILABLE_MOVES*ACTION_SIZE], *action;
 	int endIdx, reward, i;
 	PyObject *output=NULL, *pyState=NULL;
 	pyState = PyTuple_GetItem(args, 0);
 
-	stateFromPy(pyState, state);
-	allActions(state, actions);
-	endIdx = checkGameEnd(state, actions, 0);
+	__stateFromPy(pyState, state);
+	__allActions(state, actions);
+	endIdx = __checkGameEnd(state, actions, 0);
 	
 	while(endIdx==-1){
 		for(i=0; actions[i*ACTION_SIZE]!=-1; i++);
 		action = &actions[(rand()%i)*ACTION_SIZE];
 		
-		performAction(state, action);
-		allActions(state, actions);
-		endIdx = checkGameEnd(state, actions, 0);
+		__performAction(state, action);
+		__allActions(state, actions);
+		endIdx = __checkGameEnd(state, actions, 0);
 	}
-	reward = endIdx==3? SCORING(OPPONENT(getPlayer(state))): 0;
+	reward = endIdx==3? SCORING(OPPONENT(__getPlayer(state))): 0;
 
 	output = PyTuple_New(4);
-	PyTuple_SetItem(output, 0, stateToPy(state));
-	PyTuple_SetItem(output, 1, actionsToPy(actions));
+	PyTuple_SetItem(output, 0, __stateToPy(state));
+	PyTuple_SetItem(output, 1, __actionsToPy(actions));
 	PyTuple_SetItem(output, 2, (endIdx>=0)?PyUnicode_FromString(END_MESSAGE[endIdx]):PyBool_FromLong(0));
 	PyTuple_SetItem(output, 3, PyLong_FromLong(reward));
 	return output;
 }
 
 static PyMethodDef cengineMethods[] = {
-    {"actionIndex",  __actionIndex, METH_VARARGS, "Convert action to index"},
-    {"actionFromIndex",  __actionFromIndex, METH_VARARGS, "Get action from index"},
-    {"stateIndex",  __stateIndex, METH_VARARGS, "Convert state to index"},
-    {"stateFromIndex",  __stateFromIndex, METH_VARARGS, "Get state to index"},
-    {"kingAttacked",  __kingAttacked, METH_VARARGS, "Check if the current players king is under check"},
-    {"positionAllowedMoves",  __positionAllowedMoves, METH_VARARGS, "Get all possible positions from the given box."},
-    {"init",  __init, METH_VARARGS, "Initialize the game."},
-    {"play",  __play, METH_VARARGS, "Play a move in the game."},
-    {"playRandomTillEnd",  __playRandomTillEnd, METH_VARARGS, "Play a given state till game end with random;y selected moves."},
+    {"actionIndex",  actionIndex, METH_VARARGS, "Convert action to index"},
+    {"actionFromIndex",  actionFromIndex, METH_VARARGS, "Get action from index"},
+    {"stateIndex",  stateIndex, METH_VARARGS, "Convert state to index"},
+    {"stateFromIndex",  stateFromIndex, METH_VARARGS, "Get state to index"},
+    {"kingAttacked",  kingAttacked, METH_VARARGS, "Check if the current players king is under check"},
+    {"positionAllowedMoves",  positionAllowedMoves, METH_VARARGS, "Get all possible positions from the given box."},
+    {"init",  init, METH_VARARGS, "Initialize the game."},
+    {"play",  play, METH_VARARGS, "Play a move in the game."},
+    {"playRandomTillEnd",  playRandomTillEnd, METH_VARARGS, "Play a given state till game end with random;y selected moves."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

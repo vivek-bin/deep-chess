@@ -1,5 +1,5 @@
 #define NPY_NO_DEPRECATED_API NPY_1_7_API_VERSION
-#include <Python.h>
+#include "ceng_common.c"
 #include <numpy/arrayobject.h>
 #include <dirent.h>
 #include <math.h>
@@ -10,57 +10,28 @@
 #define MC_EXPLORATION_CONST 0.5
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
-#define ACTION_SIZE 5 
-#define BOARD_SIZE 8
-#define STATE_SIZE (2*BOARD_SIZE*BOARD_SIZE + 4 + 2 + 1)
-#define MAX_AVAILABLE_MOVES (4*(BOARD_SIZE-1)*2*BOARD_SIZE + 1)
-
-#define WHITE_IDX 0
-#define BLACK_IDX 1
-#define LEFT_CASTLE 0
-#define RIGHT_CASTLE 1
-
-#define LEN(x) (sizeof(x)/sizeof(x[0]))
-
-static int compareState(char state[], char state2[]);
-static void copyState(char state[], char blankState[]);
-static int getBoardBox(char state[], int player, int row, int col);
-static int getEnPassant(char state[], int player);
-static int getCastling(char state[], int player, int side);
-static int getPlayer(char state[]);
-static int actionIndex(char action[]);
-static void actionFromIndex(int idx, char action[]);
-static void stateIndex(char state[], char stateIdx[]);
-static void stateFromIndex(char stateIdx[], char state[]);
-
-static PyObject* stateToPy(char state[]);
-static void stateFromPy(PyObject* pyState, char state[]);
-static PyObject* actionsToPy(char positions[]);
-static void actionFromPy(PyObject* pyAction, char action[]);
-
-static void init(char state[], char actions[], int *endIdx, int *reward);
-static void play(char state[], char action[], int duration, char actions[], int *endIdx, int *reward);
 
 
 typedef struct NodeCommon NodeCommon;
 typedef struct Node Node;
-static void getStateHistory(Node *node, long limit, char **stateHistory);
-static void prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTORY], char *boardModelInput, char *otherModelInput);
-static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso);
-static double nodeValue(Node *node, int explore);
-static Node* bestChild(Node *node);
-static Node* getLeaf(Node *node);
-static void backPropogate(Node *node);
-static void runSimulations(Node *node);
-static void saveNodeInfo(Node *node);
-static void removeOtherChildren(Node *node, Node *best);
-static void freeTree(Node *node);
-static void freePyTree(PyObject *pyNode);
-static int lastGameIndex(char *dataPath);
-static void getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistory[][STATE_SIZE]);
-static Node* initNodeChildren(Node *node, char actions[]);
-static PyObject* __initTree(PyObject *self, PyObject *args);
-static PyObject* __searchTree(PyObject *self, PyObject *args);
+static int __compareState(char state[], char state2[]);
+static void __getStateHistory(Node *node, long limit, char **stateHistory);
+static void __prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTORY], char *boardModelInput, char *otherModelInput);
+static void __setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso);
+static double __nodeValue(Node *node, int explore);
+static Node* __bestChild(Node *node);
+static Node* __getLeaf(Node *node);
+static void __backPropogate(Node *node);
+static void __runSimulations(Node *node);
+static void __saveNodeInfo(Node *node);
+static void __removeOtherChildren(Node *node, Node *best);
+static void __freeTree(Node *node);
+static void __freePyTree(PyObject *pyNode);
+static int __lastGameIndex(char *dataPath);
+static void __getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistory[][STATE_SIZE]);
+static Node* __initNodeChildren(Node *node, char actions[]);
+static PyObject* initTree(PyObject *self, PyObject *args);
+static PyObject* searchTree(PyObject *self, PyObject *args);
 
 
 
@@ -100,8 +71,17 @@ struct Node{
 };
 
 
+static int __compareState(char state[], char state2[]){
+	int i;
+	for(i=0; i<STATE_SIZE; i++){
+		if(state2[i] != state[i]){
+			return 0;
+		}
+	}
+	return 1;
+}
 
-static void getStateHistory(Node *node, long limit, char *stateHistory[]){
+static void __getStateHistory(Node *node, long limit, char *stateHistory[]){
 	long i, j;
 	for(i=0; i<limit; i++){
 		stateHistory[i] = NULL;
@@ -132,8 +112,8 @@ static void getStateHistory(Node *node, long limit, char *stateHistory[]){
 	}
 }
 
-static void prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTORY], char *boardModelInput, char *otherModelInput){
-	int b, h, p, r, c, i, j;
+static void __prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTORY], char *boardModelInput, char *otherModelInput){
+	int b, h, p, r, c, i, j, historyOffset, modelInputOffset;
 	long long idx;
 
 	// initialize used area = 0
@@ -145,14 +125,15 @@ static void prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTO
 		boardModelInput[i] = -1;
 	}
 	for(b=0; b<batchSize; b++){
-		for(j=0; j<STATE_HISTORY_LEN && stateHistories[b][j]!= NULL; j++);
-		h = (j>BOARD_HISTORY?0:BOARD_HISTORY-j);
-		for(; h<BOARD_HISTORY; h++){
+		for(j=0; j<BOARD_HISTORY && stateHistories[b][j]!= NULL; j++);
+		modelInputOffset = (j>BOARD_HISTORY?0:BOARD_HISTORY-j);
+		historyOffset = (j>BOARD_HISTORY?j-BOARD_HISTORY:0);
+		for(h=0; h<BOARD_HISTORY && h<j; h++){
 			for(p=0; p<2; p++){
 				for(r=0; r<BOARD_SIZE; r++){
 					for(c=0; c<BOARD_SIZE; c++){
-						idx = (((b*BOARD_HISTORY + h)*2 + p)*BOARD_SIZE + r)*BOARD_SIZE + c;
-						boardModelInput[idx] = getBoardBox(stateHistories[b][h+(j>BOARD_HISTORY?j-BOARD_HISTORY:0)], p, r, c);
+						idx = (((b*BOARD_HISTORY + h+modelInputOffset)*2 + p)*BOARD_SIZE + r)*BOARD_SIZE + c;
+						boardModelInput[idx] = __getBoardBox(stateHistories[b][h+historyOffset], p, r, c);
 					}
 				}
 			}
@@ -177,30 +158,30 @@ static void prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTO
 		for(r=0; r<BOARD_SIZE; r++){
 			for(c=0; c<BOARD_SIZE; c++){
 				idx = ((b*3 + 0)*BOARD_SIZE + r)*BOARD_SIZE + c;
-				otherModelInput[idx] = getPlayer(stateHistories[b][h]);
+				otherModelInput[idx] = __getPlayer(stateHistories[b][h]);
 			}
 		}
 
 		// castling info
-		if(getCastling(stateHistories[b][h], WHITE_IDX, LEFT_CASTLE)){
+		if(__getCastling(stateHistories[b][h], WHITE_IDX, LEFT_CASTLE)){
 			for(c=0; c<BOARD_SIZE/2; c++){
 				idx = ((b*3 + 1)*BOARD_SIZE + 0)*BOARD_SIZE + c;
 				otherModelInput[idx] = 1;
 			}
 		}
-		if(getCastling(stateHistories[b][h], WHITE_IDX, RIGHT_CASTLE)){
+		if(__getCastling(stateHistories[b][h], WHITE_IDX, RIGHT_CASTLE)){
 			for(c=BOARD_SIZE/2-1; c<BOARD_SIZE; c++){
 				idx = ((b*3 + 1)*BOARD_SIZE + 0)*BOARD_SIZE + c;
 				otherModelInput[idx] = 1;
 			}
 		}
-		if(getCastling(stateHistories[b][h], BLACK_IDX, LEFT_CASTLE)){
+		if(__getCastling(stateHistories[b][h], BLACK_IDX, LEFT_CASTLE)){
 			for(c=0; c<BOARD_SIZE/2; c++){
 				idx = ((b*3 + 1)*BOARD_SIZE + BOARD_SIZE - 1)*BOARD_SIZE + c;
 				otherModelInput[idx] = 1;
 			}
 		}
-		if(getCastling(stateHistories[b][h], BLACK_IDX, RIGHT_CASTLE)){
+		if(__getCastling(stateHistories[b][h], BLACK_IDX, RIGHT_CASTLE)){
 			for(c=BOARD_SIZE/2-1; c<BOARD_SIZE; c++){
 				idx = ((b*3 + 1)*BOARD_SIZE + BOARD_SIZE - 1)*BOARD_SIZE + c;
 				otherModelInput[idx] = 1;
@@ -208,13 +189,13 @@ static void prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTO
 		}
 
 		// enpassant info
-		if((c=getEnPassant(stateHistories[b][h], WHITE_IDX))>=0){
+		if((c=__getEnPassant(stateHistories[b][h], WHITE_IDX))>=0){
 			for(r=0; r<3; r++){
 				idx = ((b*3 + 2)*BOARD_SIZE + 1 + r)*BOARD_SIZE + c;
 				otherModelInput[idx] = 1;
 			}
 		}
-		if((c=getEnPassant(stateHistories[b][h], BLACK_IDX))>=0){
+		if((c=__getEnPassant(stateHistories[b][h], BLACK_IDX))>=0){
 			for(r=0; r<3; r++){
 				idx = ((b*3 + 2)*BOARD_SIZE + (BOARD_SIZE - 2) - r)*BOARD_SIZE + c;
 				otherModelInput[idx] = 1;
@@ -223,10 +204,10 @@ static void prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HISTO
 	}
 }
 
-static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
+static void __setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 	PyObject *predictionOutput, *predictionInput, *pyValues, *pyPolicies;
 	PyObject *npBoard, *npOther;
-	npy_intp boardDims[4], otherDims[4];
+	npy_intp dims[4];
 	char actions[ACTION_SIZE*MAX_AVAILABLE_MOVES];
 	Node *child, *grandChild;
 
@@ -238,11 +219,13 @@ static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 	int end, reward;
 	int batchSize, b, i, j;
 
-
 	// find batch size
-	for(batchSize=0; batchSize<PREDICTION_BATCH_SIZE && stateHistories[batchSize]!=NULL; batchSize++);
+	for(batchSize=0, child=(node->firstChild); batchSize<MAX_CHILDREN && child!=NULL; batchSize++, child=(child->sibling));
+	if(setNodeValuePolicyAlso){
+		batchSize++;
+	}
 	
-	getStateHistory(node, STATE_HISTORY_LEN, repeatStateHistory);
+	__getStateHistory(node, STATE_HISTORY_LEN, repeatStateHistory);
 	for(i=0; i<STATE_HISTORY_LEN && repeatStateHistory[i]!=NULL; i++);
 	nodeStateHistory = i>BOARD_HISTORY?&(repeatStateHistory[i-BOARD_HISTORY]):repeatStateHistory;
 
@@ -254,14 +237,14 @@ static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 		b++;
 	}
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		copyState(node->state, child->state);
-		play(child->state, child->previousAction, node->depth, actions, &end, &reward);
+		__copyState(node->state, child->state);
+		__play(child->state, child->previousAction, node->depth, actions, &end, &reward);
 		
 		child->end = end;
 		child->reward = reward?-1:0;
 		for(j=0; j<MAX_AVAILABLE_MOVES && actions[j*ACTION_SIZE]>=0; j++);
 		child->numActions = j;
-		child->firstChild = initNodeChildren(child, actions);
+		child->firstChild = __initNodeChildren(child, actions);
 
 		for(j=0; j<BOARD_HISTORY-1; j++){
 			stateHistories[b][j] = nodeStateHistory[j+1];
@@ -269,7 +252,7 @@ static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 		stateHistories[b++][j] = child->state;
 
 		for(j=0; j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
-			if(compareState(child->state, repeatStateHistory[j])){
+			if(__compareState(child->state, repeatStateHistory[j])){
 				child->repeat = 1;
 				break;
 			}
@@ -278,32 +261,36 @@ static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 
 
 
-	prepareCModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
+	__prepareCModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
 
-	boardDims[0] = batchSize;	boardDims[1] = BOARD_HISTORY*2;	boardDims[2] = BOARD_SIZE;	boardDims[3] = BOARD_SIZE;
-	npBoard = PyArray_SimpleNewFromData(4, boardDims, NPY_INT8, boardModelInput);
-	otherDims[0] = batchSize;	otherDims[1] = 3;	otherDims[2] = BOARD_SIZE;	otherDims[3] = BOARD_SIZE;
-	npOther = PyArray_SimpleNewFromData(4, otherDims, NPY_INT8, otherModelInput);
-	predictionInput = PyList_New(2);	PyList_SetItem(predictionInput, 0, npBoard);	PyList_SetItem(predictionInput, 1, npOther);
+	dims[0] = batchSize;	dims[1] = BOARD_HISTORY*2;	dims[2] = BOARD_SIZE;	dims[3] = BOARD_SIZE;
+	npBoard = PyArray_SimpleNewFromData(4, dims, NPY_INT8, boardModelInput);
+	dims[1] = 3;
+	npOther = PyArray_SimpleNewFromData(4, dims, NPY_INT8, otherModelInput);
+	predictionInput = PyTuple_New(2);	PyTuple_SetItem(predictionInput, 0, npBoard);	PyTuple_SetItem(predictionInput, 1, npOther);
 
 	predictionOutput = PyObject_CallMethod(node->common->model, "predict", "Oi", predictionInput, PREDICTION_BATCH_SIZE);
 	
-	pyValues = PyList_GetItem(predictionOutput, 0);
-	pyPolicies = PyList_GetItem(predictionOutput, 1);
+	printf("\n-----------------in func3----------------- \n");
+	printf("\n-----------------in func30----------------- %s \n", PyBytes_AsString(PyUnicode_AsUTF8String((PyObject_Str(PyObject_Type(predictionOutput))))));
+	pyValues = PyTuple_GetItem(predictionOutput, 0);
+	printf("\n-----------------in func31----------------- %i \n", PyList_Size(pyValues));
+	pyPolicies = PyTuple_GetItem(predictionOutput, 1);
 
 
+	printf("\n-----------------in func4-----------------\n");
 	b = 0;
 	if(setNodeValuePolicyAlso){
 		node->stateValue = *((float*)PyArray_GETPTR1(pyValues, b));
 		for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-			child->actionProbability = ((float*)PyArray_GETPTR1(pyPolicies, b))[actionIndex(child->previousAction)];
+			child->actionProbability = ((float*)PyArray_GETPTR1(pyPolicies, b))[__actionIndex(child->previousAction)];
 		}
 		b++;
 	}
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
 		child->stateValue = *((float*)PyArray_GETPTR1(pyValues, b));
 		for(grandChild=(node->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
-			grandChild->actionProbability = ((float*)PyArray_GETPTR1(pyPolicies, b))[actionIndex(grandChild->previousAction)];
+			grandChild->actionProbability = ((float*)PyArray_GETPTR1(pyPolicies, b))[__actionIndex(grandChild->previousAction)];
 		}
 		b++;
 	}
@@ -312,7 +299,7 @@ static void setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 	Py_XDECREF(predictionOutput);
 }
 
-static double nodeValue(Node *node, int explore){
+static double __nodeValue(Node *node, int explore){
 	double value;
 	value = (node->stateValue + node->stateTotalValue)/((double)(node->visits + 1));
 	if(explore && node->common->training){
@@ -321,7 +308,7 @@ static double nodeValue(Node *node, int explore){
 	return value;
 }
 
-static Node* bestChild(Node *node){
+static Node* __bestChild(Node *node){
 	double totalValue, minimumValue;
 	Node *child;
 	long long r;
@@ -332,7 +319,7 @@ static Node* bestChild(Node *node){
 	int count, i, bestIdx;
 
 	for(count=0, child=(node->firstChild); count<MAX_AVAILABLE_MOVES && child!=NULL; count++, child=(child->sibling)){
-		values[count] = nodeValue(child, 1);
+		values[count] = __nodeValue(child, 1);
 		children[count] = child;
 	}
 
@@ -369,15 +356,15 @@ static Node* bestChild(Node *node){
 	return children[bestIdx];
 }
 
-static Node* getLeaf(Node *node){
+static Node* __getLeaf(Node *node){
 	while(node->firstChild != NULL){
-		node = bestChild(node);
+		node = __bestChild(node);
 	}
 
 	return node;
 }
 
-static void backPropogate(Node *node){
+static void __backPropogate(Node *node){
 	double decay, leafValue, flip;
 
 	leafValue = node->end?node->reward:node->stateValue;
@@ -389,22 +376,22 @@ static void backPropogate(Node *node){
 	}
 }
 
-static void runSimulations(Node *node){
+static void __runSimulations(Node *node){
 	int i;
 	Node *leaf;
 
 	for(i=0; i<NUM_SIMULATIONS; i++){
-		leaf = getLeaf(node);
+		leaf = __getLeaf(node);
 		if(leaf->end==0){
-			setChildrenValuePolicy(leaf, 0);
-			leaf = bestChild(leaf);
+			__setChildrenValuePolicy(leaf, 0);
+			leaf = __bestChild(leaf);
 		}
-		backPropogate(leaf);
+		__backPropogate(leaf);
 	}
 
 }
 
-static void saveNodeInfo(Node *node){
+static void __saveNodeInfo(Node *node){
 	FILE * oFile;
 	Node *child;
 	char stateIdx[STATE_SIZE+1];
@@ -416,13 +403,13 @@ static void saveNodeInfo(Node *node){
 	oFile = fopen(fileName,"w");
 
 	fprintf(oFile, "{");
-	stateIndex(node->state, stateIdx);
+	__stateIndex(node->state, stateIdx);
 	fprintf(oFile, "  \"STATE\" : \"%s\", \n", stateIdx);
 	
 	fprintf(oFile, "  \"STATE_HISTORY\" : [ \n");
-	getStateHistory(node, STATE_HISTORY_LEN, stateHistory);
+	__getStateHistory(node, STATE_HISTORY_LEN, stateHistory);
 	for(i=0; i<STATE_HISTORY_LEN && stateHistory[i]!=NULL; i++){
-		stateIndex(stateHistory[i], stateIdx);
+		__stateIndex(stateHistory[i], stateIdx);
 		fprintf(oFile, "    \"%s\" ", stateIdx);
 		if(i+1<STATE_HISTORY_LEN && stateHistory[i+1]!=NULL){fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
@@ -431,14 +418,14 @@ static void saveNodeInfo(Node *node){
 
 	fprintf(oFile, "  \"ACTIONS_POLICY\" : { \n");
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		fprintf(oFile, "    \"%i\" : %f ", actionIndex(child->previousAction), child->actionProbability);
+		fprintf(oFile, "    \"%i\" : %f ", __actionIndex(child->previousAction), child->actionProbability);
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
 	fprintf(oFile, "                     } \n");
 	fprintf(oFile, "  \"SEARCHED_POLICY\" : { \n");
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		fprintf(oFile, "    \"%i\" : %f ", actionIndex(child->previousAction), ((float)(child->visits)/(float)(node->visits)));
+		fprintf(oFile, "    \"%i\" : %f ", __actionIndex(child->previousAction), ((float)(child->visits)/(float)(node->visits)));
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
@@ -446,8 +433,8 @@ static void saveNodeInfo(Node *node){
 
 	fprintf(oFile, "  \"END\" : %i, \n", node->end);
 	fprintf(oFile, "  \"REWARD\" : %i, \n", node->reward);
-	fprintf(oFile, "  \"VALUE\" : %f, \n", nodeValue(node, 0));
-	fprintf(oFile, "  \"EXPLORATORY_VALUE\" : %f, \n", nodeValue(node, 1));
+	fprintf(oFile, "  \"VALUE\" : %f, \n", __nodeValue(node, 0));
+	fprintf(oFile, "  \"EXPLORATORY_VALUE\" : %f, \n", __nodeValue(node, 1));
 	fprintf(oFile, "  \"TRAINING\" : %i, \n", node->common->training);
 
 	fprintf(oFile, "  \"GAME_NUMBER\" : %li, \n", node->common->gameIndex);
@@ -457,25 +444,24 @@ static void saveNodeInfo(Node *node){
 	fclose (oFile);
 }
 
-static void removeOtherChildren(Node *node, Node *best){
+static void __removeOtherChildren(Node *node, Node *best){
 	Node *child;
 
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
 		if(child!=best){
-			freeTree(child);
+			__freeTree(child);
 		}
 	}
 	best->sibling = NULL;
 	node->firstChild = best;
 }
 
-
-static void freeTree(Node *node){
+static void __freeTree(Node *node){
 	Node *child, *nextChild;
 
 	for(child=(node->firstChild); child!=NULL; child=nextChild){
 		nextChild = child->sibling;
-		freeTree(child);
+		__freeTree(child);
 	}
 
 	node->common->count--;
@@ -486,7 +472,7 @@ static void freeTree(Node *node){
 	free(node);
 }
 
-static void freePyTree(PyObject *pyNode){
+static void __freePyTree(PyObject *pyNode){
 	Node *node;
 	node = (Node*)PyCapsule_GetPointer(pyNode, NULL);
 	node->common->pyCounter--;
@@ -495,11 +481,11 @@ static void freePyTree(PyObject *pyNode){
 			node = node->parent;
 		}
 		Py_XDECREF(node->common->model);
-		freeTree(node);
+		__freeTree(node);
 	}
 }
 
-static int lastGameIndex(char *dataPath){
+static int __lastGameIndex(char *dataPath){
 	int gameIndex, gameIndexTemp;
 	char *fileName;
 
@@ -526,18 +512,18 @@ static int lastGameIndex(char *dataPath){
 	return gameIndex;
 }
 
-static void getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistory[][STATE_SIZE]){
+static void __getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistory[][STATE_SIZE]){
 	PyObject *pyState;
 	int size, i;
 	
 	size = PyTuple_Size(pyHistory);
 	for(i=0; i<size; i++){
 		pyState = PyDict_GetItemString(PyTuple_GetItem(pyHistory, i), "STATE");
-		stateFromPy(pyState, stateHistory[i]);
+		__stateFromPy(pyState, stateHistory[i]);
 	}
 }
 
-static Node* initNodeChildren(Node *node, char actions[]){
+static Node* __initNodeChildren(Node *node, char actions[]){
 	Node *child, *previousChild, *firstChild;
 	int i, j, n;
 	for(n=0; n<MAX_CHILDREN && actions[n*5]>=0; n++);
@@ -586,45 +572,43 @@ static Node* initNodeChildren(Node *node, char actions[]){
 	return firstChild;
 }
 
-static PyObject* __initTree(PyObject *self, PyObject *args){
+static PyObject* initTree(PyObject *self, PyObject *args){
 	PyObject *pyState, *pyActions, *pyHistory, *pyModel;
 	Node *root;
 	NodeCommon *common;
 	int end, reward, i;
 	char actions[MAX_AVAILABLE_MOVES * ACTION_SIZE];
 	char *dataPath;
+	import_array();
 
-	PyArg_ParseTuple(args, "OOiiOOs", pyState, pyActions, end, reward, pyHistory, pyModel, dataPath);
-	
+	PyArg_ParseTuple(args, "OOiiOOs", &pyState, &pyActions, &end, &reward, &pyHistory, &pyModel, &dataPath);
 	for(i=0; i<MAX_AVAILABLE_MOVES * ACTION_SIZE; i++){
 		actions[i] = -1;
 	}
 	for (i=0; i<PyTuple_Size(pyActions); i++){
-		actionFromPy(PyTuple_GetItem(pyActions, i), &(actions[i*ACTION_SIZE]));
+		__actionFromPy(PyTuple_GetItem(pyActions, i), &(actions[i*ACTION_SIZE]));
 	}
-
 
 	root = malloc(sizeof(Node));
 	common = malloc(sizeof(NodeCommon));
 	common->count = 1;
 	common->rootStateHistoryLen = PyTuple_Size(pyHistory);
-	getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
+	__getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
 	common->model = pyModel;	Py_XINCREF(pyModel);
-	common->gameIndex = lastGameIndex(dataPath) + 1;
+	common->gameIndex = __lastGameIndex(dataPath) + 1;
 	common->training = 1;
 	common->pyCounter = 1;
 	strcpy(common->dataPath, dataPath);
 
 	root->common = common;
-	stateFromPy(pyState, root->state);
+	__stateFromPy(pyState, root->state);
 	root->end = end;
 	root->reward = reward?-1:0;
 	root->numActions = PyTuple_Size(pyActions);
-	root->firstChild = initNodeChildren(root, actions);
+	root->firstChild = __initNodeChildren(root, actions);
 	root->parent = NULL;
 	root->depth = PyTuple_Size(pyHistory) + 1;
 	root->isTop = 1;
-	root->firstChild = NULL;
 
 	root->visits = 0;
 	root->stateTotalValue = 0;
@@ -632,45 +616,44 @@ static PyObject* __initTree(PyObject *self, PyObject *args){
 	root->exploreValue = 1;
 	root->actionProbability = 1;
 
-	setChildrenValuePolicy(root, 1);
+	__setChildrenValuePolicy(root, 1);
 
-	return PyCapsule_New((void*)root, NULL, freePyTree);
+	return PyCapsule_New((void*)root, NULL, __freePyTree);
 }
 
-static PyObject* __searchTree(PyObject *self, PyObject *args){
+static PyObject* searchTree(PyObject *self, PyObject *args){
 	PyObject *pyRoot, *output;
 	PyObject *pyBestActions, *pyBestAction;
 	Node *root, *best;
+	import_array();
 
 	pyRoot = PyTuple_GetItem(args, 0);
 	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
 
 
-	runSimulations(root);
-	saveNodeInfo(root);
-	best = bestChild(root);
-	removeOtherChildren(root, best);
+	__runSimulations(root);
+	__saveNodeInfo(root);
+	best = __bestChild(root);
+	__removeOtherChildren(root, best);
 	root->common->pyCounter++;
 
 
-	pyBestActions = actionsToPy(best->previousAction);
+	pyBestActions = __actionsToPy(best->previousAction);
 	pyBestAction = PyTuple_GetItem(pyBestActions, 0);
 	Py_XINCREF(pyBestAction);
 	Py_XDECREF(pyBestActions);
 
 	output = PyTuple_New(2);
-	PyTuple_SetItem(output, 0, PyCapsule_New((void*)best, NULL, freePyTree));
+	PyTuple_SetItem(output, 0, PyCapsule_New((void*)best, NULL, __freePyTree));
 	PyTuple_SetItem(output, 1, pyBestAction);
 	return output;
 }
 
 
 
-
-
 static PyMethodDef csearchMethods[] = {
-    {"initTree",  __initTree, METH_VARARGS, "create new tree"},
-    {"searchTree",  __searchTree, METH_VARARGS, "search for next move."},
+    {"initTree",  initTree, METH_VARARGS, "create new tree"},
+    {"searchTree",  searchTree, METH_VARARGS, "search for next move."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
 

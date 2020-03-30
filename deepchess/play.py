@@ -55,7 +55,8 @@ def playGame():
 		elif CONST.MC_SEARCH_MOVE:
 			if root is None:
 				print("creating new tree")
-				root = SE.initTree(state=state, actions=actions, end=end, reward=reward, history=history, model=model, dataPath=CONST.DATA)
+				root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA)
+				print("created tree")
 
 			root, action = SE.searchTree(root)
 		else:
