@@ -8,7 +8,7 @@ else:
 from . import trainmodel as TM
 import math
 import random
-import pickle
+import json
 import os
 
 NUM_SIMULATIONS = 800
@@ -86,22 +86,23 @@ class Node():
 		self.setPolicy(policy[0])
 
 	def setValue(self, value):
-		self.stateValue = value
+		self.stateValue = float(value)
 		
 	def setPolicy(self, policy):
 		for action in self.actions.keys():
-			self.actions[action] = policy[EG.actionIndex(action)]
+			self.actions[action] = float(policy[EG.actionIndex(action)])
 
 	def bestChild(self):
 		children = sorted([(child, child.nodeValue()) for child in self.children], key=lambda x:x[1])
 		if Node.training:
 			minimum = min((childValue for child, childValue in children))
-			total = sum((childValue-minimum for child, childValue in children))
-			num = ((random.random())**0.5) * total			# weigh upper level more
+			children = [(child, (childValue-minimum)**2) for child,childValue in children] 		# weigh upper level more
+			total = sum((childValue for child, childValue in children))
+			num = total * 0.5 #(random.random())
 
 			while num>=0 and children:
 				child, childValue = children.pop()
-				num -= childValue-minimum
+				num -= childValue
 		else:
 			child = children[-1][0]
 		return child
@@ -178,23 +179,24 @@ class Node():
 
 	def saveNodeInfo(self):
 		tempDict = {}
-		tempDict["STATE"] = EG.stateFromIndex(self.state) if Node.lowStateMemoryUse else self.state
-		tempDict["ACTIONS_POLICY"] = self.actions
-		tempDict["SEARCHED_POLICY"] = {child.previousAction:(child.visits/self.visits) for child in self.children}
+		tempDict["STATE"] = self.state if Node.lowStateMemoryUse else EG.stateIndex(self.state)
+		tempDict["ACTIONS_POLICY"] = {str(EG.actionIndex(k)):v for k,v in self.actions.items()}
+		tempDict["SEARCHED_POLICY"] = {str(EG.actionIndex(child.previousAction)):(child.visits/self.visits) for child in self.children}
+		tempDict["STATE_HISTORY"] = self.getStateHistory(indexed=True)
+
 		tempDict["END"] = self.end
 		tempDict["REWARD"] = self.reward
 		tempDict["VALUE"] = self.nodeValue(explore=False)
 		tempDict["EXPLORATORY_VALUE"] = self.nodeValue()
-		tempDict["STATE_HISTORY"] = self.getStateHistory()
-		tempDict["TRAINING"] = Node.training
+		tempDict["TRAINING"] = int(Node.training)
 
 		tempDict["GAME_NUMBER"] = Node.gameIndex
-		tempDict["MOVE_NUMBER"] = len(self.getStateHistory(9999)) + 1
+		tempDict["MOVE_NUMBER"] = len(self.getStateHistory(9999)) - 1
 
 		fileName = "game_" + str(tempDict["GAME_NUMBER"]).zfill(5) + "_move_" + str(tempDict["MOVE_NUMBER"]).zfill(3)
 		
-		with open(Node.dataPath + fileName + ".pickle", "wb") as p:
-			pickle.dump(tempDict, p)
+		with open(Node.dataPath + fileName + ".json", "w") as p:
+			json.dump(tempDict, p)
 
 
 
@@ -202,7 +204,7 @@ def initTree(state, actions, end, reward, history, model, dataPath):
 	if not actions:
 		return None		# terminal node already
 
-	fileNames = [x for x in os.listdir(dataPath) if x.startswith("game_") and x.endswith(".pickle")]
+	fileNames = [x for x in os.listdir(dataPath) if x.startswith("game_") and x.endswith(".json")]
 	gameIndices = [int(x.split("_")[1]) for x in fileNames]
 	gameIndex = max(gameIndices + [-1]) + 1
 	

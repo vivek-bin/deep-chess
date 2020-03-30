@@ -16,7 +16,6 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
-from . import search as SE
 from .models.models import *
 
 def prepareModelInput(stateHistories):

@@ -31,6 +31,7 @@
 #define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
 #define ACTION_SIZE 5
 
+static int compareState(char state[], char state2[]);
 static void copyState(char state[], char blankState[]);
 static int getBoardBox(char state[], int player, int row, int col);
 static void setBoardBox(char state[], int value, int player, int row, int col);
@@ -93,6 +94,16 @@ const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_
 const char END_MESSAGE[4][25] = {"draw,max_steps", "draw,only_kings", "draw,stalemate", "loss"};
 
 
+
+static int compareState(char state[], char state2[]){
+	int i;
+	for(i=0; i<STATE_SIZE; i++){
+		if(state2[i] != state[i]){
+			return 0;
+		}
+	}
+	return 1;
+}
 
 static void copyState(char state[], char blankState[]){
 	int i;
@@ -181,6 +192,21 @@ static void actionFromIndex(int idx, char action[]){
 		action[3] = idx % BOARD_SIZE; 					idx /= BOARD_SIZE;
 		action[2] = idx * (BOARD_SIZE - 1);
 		action[0] = action[2] + (action[2]==0?1:-1);
+	}
+}
+
+static void stateIndex(char state[], char stateIdx[]){
+	int i;
+	for(i=0; i<STATE_SIZE; i++){
+		stateIdx[i] = state[i] + '0';
+	}
+	stateIdx[i] = '\0';
+}
+
+static void stateFromIndex(char stateIdx[], char state[]){
+	int i;
+	for(i=0; i<STATE_SIZE; i++){
+		state[i] = stateIdx[i] - '0';
 	}
 }
 
@@ -826,29 +852,22 @@ static PyObject* __actionFromIndex(PyObject *self, PyObject *args){
 
 static PyObject* __stateIndex(PyObject *self, PyObject *args){
 	char state[STATE_SIZE+1];
-	int i;
 	PyObject *pyState;
 
 	pyState = PyTuple_GetItem(args, 0);
 	stateFromPy(pyState, state);
-	for(i=0; i<STATE_SIZE; i++){
-		state[i] = state[i] + '0';
-	}
-	state[STATE_SIZE] = '\0';
+	stateIndex(state, state);
 	
 	return PyUnicode_FromString(state);
 }
 
 static PyObject* __stateFromIndex(PyObject *self, PyObject *args){
 	char *state;
-	int i;
 	PyObject *pyStateIdx;
 
 	pyStateIdx = PyTuple_GetItem(args, 0);
 	state = PyBytes_AsString(PyUnicode_AsUTF8String(pyStateIdx));
-	for(i=0; i<STATE_SIZE; i++){
-		state[i] = state[i] - '0';
-	}
+	stateFromIndex(state, state);
 
 	return stateToPy(state);
 }

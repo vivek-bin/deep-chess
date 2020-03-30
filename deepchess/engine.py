@@ -99,20 +99,24 @@ def stateIndex(state):
 	if state is None:
 		return None
 
-	idx =  "".join([str(box) for playerBoard in state["BOARD"] for row in playerBoard for box in row])
-	sIdx = (str(state["EN_PASSANT"][WHITE_IDX]), str(state["EN_PASSANT"][BLACK_IDX])
-		, str(state["CASTLING_AVAILABLE"][WHITE_IDX][LEFT_CASTLE]) 
-		, str(state["CASTLING_AVAILABLE"][WHITE_IDX][RIGHT_CASTLE])
-		, str(state["CASTLING_AVAILABLE"][BLACK_IDX][LEFT_CASTLE]) 
-		, str(state["CASTLING_AVAILABLE"][BLACK_IDX][RIGHT_CASTLE])
-		, str(state["PLAYER"]))
+	charify = lambda x:chr(ord('0')+x)
 
-	return idx + ",".join(sIdx)
+	idx =  "".join([charify(box) for playerBoard in state["BOARD"] for row in playerBoard for box in row])
+	sIdx = (charify(state["EN_PASSANT"][WHITE_IDX]), charify(state["EN_PASSANT"][BLACK_IDX])
+		, charify(state["CASTLING_AVAILABLE"][WHITE_IDX][LEFT_CASTLE]) 
+		, charify(state["CASTLING_AVAILABLE"][WHITE_IDX][RIGHT_CASTLE])
+		, charify(state["CASTLING_AVAILABLE"][BLACK_IDX][LEFT_CASTLE]) 
+		, charify(state["CASTLING_AVAILABLE"][BLACK_IDX][RIGHT_CASTLE])
+		, charify(state["PLAYER"]))
+
+	return idx + "".join(sIdx)
 
 def stateFromIndex(idx):
+	unCharify = lambda x:(ord(x)-ord('0'))
+
 	state = {}
-	boardIdx = [int(x) for x in idx[:2*BOARD_SIZE*BOARD_SIZE]]
-	stateIdx = [int(x) for x in idx[2*BOARD_SIZE*BOARD_SIZE:].split(",")]
+	boardIdx = [unCharify(x) for x in idx[:2*BOARD_SIZE*BOARD_SIZE]]
+	stateIdx = [unCharify(x) for x in idx[2*BOARD_SIZE*BOARD_SIZE:]]
 
 	state["BOARD"] = []
 	for p in range(2):

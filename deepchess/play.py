@@ -8,7 +8,12 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
-from . import search as SE
+if CONST.ENGINE_TYPE == "PY":
+	from . import search as SE
+elif CONST.ENGINE_TYPE == "C":
+	import csearch as SE
+else:
+	raise ImportError
 from . import trainmodel as TM
 import copy
 import gc
