@@ -42,7 +42,7 @@ def playGame():
 	root = None
 
 	state, actions, end, reward = EG.init()
-	if CONST.PLAY_MOVES:
+	if CONST.SHOW_BOARDS:
 		printBoard(state)
 	if CONST.MC_SEARCH_MOVE:
 		model = TM.loadModel(loadForTraining=False)
@@ -69,7 +69,7 @@ def playGame():
 
 		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
 		state = nextState
-		if CONST.PLAY_MOVES:
+		if CONST.SHOW_BOARDS:
 			print("move number :", len(history))
 			printBoard(state)
 

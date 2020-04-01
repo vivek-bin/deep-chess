@@ -6,7 +6,7 @@
 #define NUM_SIMULATIONS 800
 #define MAX_CHILDREN (PREDICTION_BATCH_SIZE-1)
 #define PREDICTION_BATCH_SIZE 128
-#define BACKPROP_DECAY 0.95
+#define BACKPROP_DECAY 0.98
 #define MC_EXPLORATION_CONST 0.5
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
@@ -39,6 +39,7 @@ static PyObject* test(PyObject *self, PyObject *args);
 
 struct NodeCommon{
 	long count;
+	long long idMax;
 	char training;
 	PyObject *model;
 	long gameIndex;
@@ -155,7 +156,7 @@ static void __prepareCModelInput(int batchSize, char *stateHistories[][BOARD_HIS
 	}
 
 	for(b=0; b<batchSize; b++){
-		for(j=0; j<STATE_HISTORY_LEN && stateHistories[b][j]!= NULL; j++);
+		for(j=0; j<BOARD_HISTORY && stateHistories[b][j]!= NULL; j++);
 		if(j) h = j-1; else continue;
 
 		// player info
@@ -242,9 +243,9 @@ static void __setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 	}
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
 		__copyState(node->state, child->state);
-		__play(child->state, child->previousAction, node->depth, actions, &end, &reward);
+		__play(child->state, child->previousAction, child->depth, actions, &end, &reward);
 		
-		child->end = end;
+		child->end = end>=0?1:0;
 		child->reward = reward?-1:0;
 		for(j=0; j<MAX_AVAILABLE_MOVES && actions[j*ACTION_SIZE]>=0; j++);
 		child->numActions = j;
@@ -271,7 +272,7 @@ static void __setChildrenValuePolicy(Node *node, int setNodeValuePolicyAlso){
 	dims[1] = 3;
 	npOther = PyArray_SimpleNewFromData(4, dims, NPY_INT8, otherModelInput);
 	
-	predictionOutput = PyObject_CallMethod(node->common->model, "predict", "(OO)i", npBoard, npOther, batchSize);
+	predictionOutput = PyObject_CallMethod(node->common->model, "predict", "[OO]", npBoard, npOther);//, batchSize);
 	
 	pyValues = PyList_GetItem(predictionOutput, 0);
 	pyPolicies = PyList_GetItem(predictionOutput, 1);
@@ -333,7 +334,7 @@ static Node* __bestChild(Node *node){
 			values[i] = pow(values[i]-minimumValue, 2) + 1e-3;
 			totalValue += values[i];
 		}
-		doubleR = totalValue * 0.5;//(((double)(rand()))/((double)RAND_MAX));
+		doubleR = totalValue * (((double)(rand()))/((double)RAND_MAX));
 
 		for(bestIdx=-1, totalValue=0, i=0; i<count; i++){
 			totalValue += values[i];
@@ -420,7 +421,7 @@ static void __saveNodeInfo(Node *node){
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
-	fprintf(oFile, "                     } \n");
+	fprintf(oFile, "                     }, \n");
 	fprintf(oFile, "  \"SEARCHED_POLICY\" : { \n");
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
 		fprintf(oFile, "    \"%i\" : %f ", __actionIndex(child->previousAction), ((float)(child->visits)/(float)(node->visits)));
@@ -492,7 +493,7 @@ static int __lastGameIndex(char *dataPath){
 	struct dirent *de;
 	DIR *dr = opendir(dataPath);
 	while ((de = readdir(dr)) != NULL){
-		if(strstr(de->d_name, ".pickle") != NULL) {
+		if(strstr(de->d_name, ".json") != NULL) {
 			fileName = strstr(de->d_name, "game_");
 			gameIndexTemp = 0;
 			gameIndexTemp *= 10;	gameIndexTemp += (fileName[5]-'0');
@@ -537,7 +538,8 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 		child->parent = node;
 		child->common = child->parent->common;
 		child->common->count++;
-		child->id = child->common->count;
+		child->common->idMax++;
+		child->id = child->common->idMax;
 		child->depth = child->parent->depth + 1;
 		child->isTop = 0;
 		child->stateSetFlag = 0;
@@ -593,6 +595,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	root = malloc(sizeof(Node));
 	common = malloc(sizeof(NodeCommon));
 	common->count = 1;
+	common->idMax = 1;
 	common->rootStateHistoryLen = PyList_Size(pyHistory);
 	__getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
 	common->model = pyModel;	Py_XINCREF(pyModel);
@@ -603,15 +606,15 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 
 	root->common = common;
 	__stateFromPy(pyState, root->state);
-	root->end = end;
-	root->id = root->common->count;
+	root->end = end>=0?1:0;
+	root->id = root->common->idMax;
 	root->reward = reward?-1:0;
 	root->numActions = PyTuple_Size(pyActions);
-	root->firstChild = __initNodeChildren(root, actions);
 	root->parent = NULL;
 	root->depth = PyList_Size(pyHistory) + 1;
 	root->isTop = 1;
 	root->stateSetFlag = 0;
+	root->firstChild = __initNodeChildren(root, actions);
 
 	root->visits = 0;
 	root->stateTotalValue = 0;
@@ -633,9 +636,9 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	pyRoot = PyTuple_GetItem(args, 0);
 	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
 
-	printf("\n start number of nodes %li \n ", root->common->count);
+	printf("\nstart number of nodes %li \n ", root->common->count);
 	__runSimulations(root);
-	printf("\n end number of nodes %li \n", root->common->count);
+	printf("\nend number of nodes %li \n", root->common->count);
 
 	__saveNodeInfo(root);
 	best = __bestChild(root);

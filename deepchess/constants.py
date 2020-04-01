@@ -39,7 +39,7 @@ ENGINE_TYPE = "C"		#C or PY
 MC_SEARCH_MOVE = True
 DISPLAY_TEXT_BOARD = True
 DISPLAY_TK_BOARD = False
-PLAY_MOVES = True
+SHOW_BOARDS = True
 
 ###paths
 GOOGLE_DRIVE_PATH = "/content/drive/My Drive/"
