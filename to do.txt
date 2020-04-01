@@ -1,1 +1,2 @@
 - loss function
+- check if state values and policy values populated/read correctly, esp in C 

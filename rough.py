@@ -182,9 +182,48 @@ def testStringC_API():
 	print(idx1.encode())
 	print(idx2.encode())
 	
+def testCSearch():
+	import deepchess.constants as CONST
+	import deepchess.trainmodel as TM
+	if CONST.ENGINE_TYPE == "PY":
+		from deepchess import engine as EG
+	elif CONST.ENGINE_TYPE == "C":
+		import cengine as EG
+	else:
+		raise ImportError
+	if CONST.ENGINE_TYPE == "PY":
+		from . import search as SE
+	elif CONST.ENGINE_TYPE == "C":
+		import csearch as SE
+	else:
+		raise ImportError
+
+
+	class Check:
+		name = "checkcheck"
+		shape = (1,2)
+		def predict(self, x, y):
+			print("aaaaaaaaaaaaaa", x[0].shape)
+			print(x[0])
+			print(x[0].__class__)
+			return [Check(),Check()]
+		def predict2(self, ip):
+			print(len(ip))
+			print(ip[0].shape)
+			print(ip[1].shape)
+			print(ip[0])
+			print(ip[1])
+
+	state, actions, end, reward = EG.init()
+	model = TM.loadModel(loadForTraining=False)
+	#model = Check()
 	
-testActionIndexing()
+
+	#v = SE.test(model)
+	root = SE.initTree(state, actions, end, reward, [], model, CONST.DATA)
+	root, action = SE.searchTree(root)
+	
+
 print(CONST.LAPSED_TIME())
-testStateIndexing()
+testCSearch()
 print(CONST.LAPSED_TIME())
-testStringC_API()
