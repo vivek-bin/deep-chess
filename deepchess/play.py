@@ -18,7 +18,6 @@ from . import trainmodel as TM
 import copy
 import gc
 import psutil
-from guppy import hpy
 
 moveList = []
 
@@ -47,7 +46,6 @@ def playGame():
 	if CONST.MC_SEARCH_MOVE:
 		model = TM.loadModel(loadForTraining=False)
 	
-	h = hpy()
 	while not end:
 		if moveList:
 			action = moveList.pop(0)
