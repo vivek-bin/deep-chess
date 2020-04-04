@@ -108,7 +108,7 @@ int __actionIndex(char action[]){
 		idx = (action[2]/(BOARD_SIZE-1))*BOARD_SIZE + action[3];
 		idx = (idx*BOARD_SIZE + action[1])*LEN(PROMOTIONS) + p;
 
-		idx += 1 + BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE;
+		idx += BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE;
 	}
 	else{
 		idx = action[0]*BOARD_SIZE + action[1];
@@ -126,7 +126,7 @@ void __actionFromIndex(int idx, char action[]){
 		action[4] = 0;
 	}
 	else{
-		idx -= 1 + BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE;
+		idx -= BOARD_SIZE*BOARD_SIZE*BOARD_SIZE*BOARD_SIZE;
 		
 		action[4] = PROMOTIONS[idx % LEN(PROMOTIONS)];	idx /= LEN(PROMOTIONS);
 		action[1] = idx % BOARD_SIZE; 					idx /= BOARD_SIZE;

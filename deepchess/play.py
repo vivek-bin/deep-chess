@@ -35,46 +35,6 @@ def printBoard(state):
 	print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
 	print(CONST.LAPSED_TIME())
 
-def playGame():
-	global moveList
-	history = []
-	root = None
-
-	state, actions, end, reward = EG.init()
-	if CONST.SHOW_BOARDS:
-		printBoard(state)
-	if CONST.MC_SEARCH_MOVE:
-		model = TM.loadModel(loadForTraining=False)
-	
-	while not end:
-		if moveList:
-			action = moveList.pop(0)
-			root = None
-		elif CONST.MC_SEARCH_MOVE:
-			if root is None:
-				print("creating new tree")
-				root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA)
-				print("created tree")
-
-			root, action = SE.searchTree(root)
-		else:
-			action = actions[int(random.random()*len(actions))]
-			root = None
-		
-		gc.collect()
-
-		nextState, actions, end, reward = EG.play(state, action, len(history))
-
-		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
-		state = nextState
-		if CONST.SHOW_BOARDS:
-			print("move number :", len(history))
-			printBoard(state)
-
-	print(end, len(history))
-	printBoard(state)
-	return end, history
-
 def displayTk(state):
 	root = tk.Tk()
 	root.title("game")
@@ -158,6 +118,62 @@ def displayTk(state):
 					canvas.create_image(j*CONST.IMAGE_SIZE, i*CONST.IMAGE_SIZE, image=pieceImagesTk[player][box], anchor=tk.NW, tags="piece")
 
 	root.mainloop()
+
+
+def playGame():
+	global moveList
+	history = []
+	root = None
+
+	state, actions, end, reward = EG.init()
+	if CONST.SHOW_BOARDS:
+		printBoard(state)
+	if CONST.MC_SEARCH_MOVE:
+		model = TM.loadModel(loadForTraining=False)
+	
+	while not end:
+		if moveList:
+			action = moveList.pop(0)
+			root = None
+		elif CONST.MC_SEARCH_MOVE:
+			if root is None:
+				print("creating new tree")
+				root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA)
+				print("created tree")
+
+			root, action = SE.searchTree(root)
+		else:
+			action = actions[int(random.random()*len(actions))]
+			root = None
+		
+		gc.collect()
+
+		nextState, actions, end, reward = EG.play(state, action, len(history))
+
+		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
+		state = nextState
+		if CONST.SHOW_BOARDS:
+			print("move number :", len(history))
+			printBoard(state)
+
+	print(end, len(history))
+	printBoard(state)
+	return end, history
+
+def generateGame():
+	count = 0
+	state, actions, end, reward = EG.init()
+	root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA)
+
+	model = TM.loadModel(loadForTraining=False)
+	
+	while not end:
+		root, action = SE.searchTree(root)
+		state, actions, end, reward = EG.play(state, action, count)
+		count += 1
+	
+	return reward
+
 
 if __name__ == "__main__":
 	playGame()

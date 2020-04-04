@@ -5,9 +5,11 @@ from tensorflow.keras.optimizers import Adam
 import json
 import tensorflow.keras.backend as K
 from tensorflow.keras.callbacks import ModelCheckpoint, TensorBoard, LearningRateScheduler
+from tensorflow.keras.utils import Sequence
 import os
 import time
 import h5py
+import random
 
 from . import constants as CONST
 if CONST.ENGINE_TYPE == "PY":
@@ -16,83 +18,94 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
+
+if CONST.ENGINE_TYPE == "PY":
+	from . import search as SE
+elif CONST.ENGINE_TYPE == "C":
+	import csearch as SE
+else:
+	raise ImportError
 from .models.models import *
 
-def prepareModelInput(stateHistories):
-	batchSize = len(stateHistories)
-	boardInput = np.ones((batchSize, CONST.BOARD_HISTORY, 2, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * EG.EMPTY
-	playerInput = np.ones((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
-	castlingStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
-	enPassantStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
-	for i, stateHistory in enumerate(stateHistories):
-		for j in range(min(CONST.BOARD_HISTORY, len(stateHistory))):
-			boardInput[i, j, :, :, :] = np.array(stateHistory[-1-j]["BOARD"], dtype=np.int8)
+
+class DataSequence(Sequence):
+	def __init__(self, batchSize):
+		self.historyFiles = os.listdir(CONST.DATA)
+		self.batchSize = batchSize
+
+		self.mem = SE.allocNpMemory()
+
+		random.shuffle(self.historyFiles)
+
+	def __len__(self):
+		return int(np.ceil(len(self.historyFiles) / self.batchSize))
+
+	def __getitem__(self, idx):
+		fileNames = self.historyFiles[idx*self.batchSize:(idx+1)*self.batchSize]
+
+		histories = []
+		for fileName in fileNames:
+			histories.append(self.loadJsonHistory(fileName))
 		
-		state = stateHistory[-1]
+		xBatch, yBatch = self.prepareTrainingInput(histories)
+		return xBatch, yBatch
 
-		playerInput[i, 0] *= state["PLAYER"]
+	def on_epoch_end(self):
+		random.shuffle(self.historyFiles)
+
+	def prepareTrainingInput(self, histories):
+		stateHistories = tuple((tuple(history["STATE_HISTORY"]) for history in histories))
+		(boardInputs, otherInputs) = SE.prepareModelInput(stateHistories, self.mem)
+
+		values = np.array(tuple((history["VALUE"] for history in histories)))
+		policies = []
+		for history in histories:
+			policy = [0] * EG.MAX_POSSIBLE_MOVES
+			for actionIdx, probability in history["SEARCHED_POLICY"].items():
+				policy[actionIdx] = probability
+
+			policies.append(policy)
+		policies = np.array(policies)
+
+		return (boardInputs, otherInputs), (values, policies)
+
+	def loadJsonHistory(self, fileName):
+		with open(CONST.DATA + fileName, "r") as file:
+			history = json.load(file)
 		
-		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
-			if state["CASTLING_AVAILABLE"][player][EG.LEFT_CASTLE]:
-				castlingStateInput[i, 0, EG.KING_LINE[player], :EG.BOARD_SIZE//2] = 1
-			if state["CASTLING_AVAILABLE"][player][EG.RIGHT_CASTLE]:
-				castlingStateInput[i, 0, EG.KING_LINE[player], (EG.BOARD_SIZE//2 - 1):] = 1
-		
-		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
-			if state["EN_PASSANT"][player] >= 0:
-				movement = EG.PAWN_DIRECTION[player][0] * EG.PAWN_NORMAL_MOVE[0]
-				pawnPos = EG.KING_LINE[player]
-				for _ in range(3):
-					pawnPos = pawnPos + movement
-					enPassantStateInput[i, 0, pawnPos, state["EN_PASSANT"][player]] = 1
+		history["STATE"] = EG.stateFromIndex(history["STATE"])
+		history["STATE_HISTORY"] = [EG.stateFromIndex(s) for s in history["STATE_HISTORY"]]
 
-	boardInput = boardInput.reshape((batchSize, -1, EG.BOARD_SIZE, EG.BOARD_SIZE))
-	stateInput = np.concatenate([playerInput, castlingStateInput, enPassantStateInput], axis=1)
+		history["ACTIONS_POLICY"] = {int(k):v for k, v in history["ACTIONS_POLICY"].items()}
+		history["SEARCHED_POLICY"] = {int(k):v for k, v in history["SEARCHED_POLICY"].items()}
 
-	return (boardInput, stateInput)
+		return history
 
+def valuePolicyLoss(targets=None, outputs=None):
+	valueTarget = targets[0]
+	valueOutput = outputs[0]
+	valueLoss = K.square(valueOutput - valueTarget)
+	valueLoss = K.flatten(valueLoss)
+	valueLoss = K.sum(valueLoss, 0)
 
-def prepareTrainingInput(histories):
-	stateHistories = tuple((tuple((x["STATE"] for x in history)) for history in histories))
-	(boardInputs, stateInputs) = prepareModelInput(stateHistories)
-
-	values = np.array((history[-1]["STATE_VALUE"] for history in histories))
-	policies = []
-	for history in histories:
-		policy = [0] * EG.MAX_POSSIBLE_MOVES
-		for actionIdx, probability in history[-1]["STATE_POLICY"].keys():
-			policy[actionIdx] = probability
-
-		policies.append(policy)
-	policies = np.array(policies)
-
-	return (boardInputs, stateInputs), (values, policies)
+	policyTarget = targets[1]
+	policyOutput = outputs[1]
+	policyLoss = -(policyTarget)*K.log(policyOutput)
+	policyLoss = K.flatten(policyLoss)
+	policyLoss = K.sum(policyLoss, 0)
+	
+	return valueLoss + policyLoss
 
 
-def lrScheduler(epoch):
-	x = (epoch + 1) / (CONST.NUM_EPOCHS * CONST.DATA_PARTITIONS)
-	temp = CONST.SCHEDULER_LEARNING_RAMPUP / CONST.SCHEDULER_LEARNING_DECAY
-	scale = ((1+temp)**CONST.SCHEDULER_LEARNING_DECAY) * ((1+1/temp)**CONST.SCHEDULER_LEARNING_RAMPUP) * CONST.SCHEDULER_LEARNING_SCALE
-
-	lr = CONST.SCHEDULER_LEARNING_RATE * scale * (x**CONST.SCHEDULER_LEARNING_RAMPUP) * ((1 - x)**CONST.SCHEDULER_LEARNING_DECAY)
-
-	print("Learning rate =", lr)
-	return np.clip(lr, CONST.SCHEDULER_LEARNING_RATE_MIN, CONST.SCHEDULER_LEARNING_RATE)
-
-def evaluateModel(model, xTest, yTest):
-	scores = model.evaluate(xTest, yTest, verbose=0)
-	print("%s: %.2f%%" % (model.metrics_names[1], scores[1]*100))
-
-
-def getLastCheckpoint(modelName):
+def getLastCheckpoint():
 	c = os.listdir(CONST.MODELS)
-	c = [x for x in c if x.startswith(modelName) and x.endswith(CONST.MODEL_NAME_SUFFIX)]
+	c = [x for x in c if x.startswith(CONST.MODEL_NAME_PREFIX) and x.endswith(CONST.MODEL_NAME_SUFFIX)]
 	return sorted(c)[-1] if c else False
 
-def getLastEpoch(modelName):
-	lastCheckpoint = getLastCheckpoint(modelName)
+def getLastEpoch():
+	lastCheckpoint = getLastCheckpoint()
 	if lastCheckpoint:
-		epoch = lastCheckpoint[len(modelName)+1:][:4]
+		epoch = lastCheckpoint[len(CONST.MODEL_NAME_PREFIX)+1:][:4]
 		try:
 			return int(epoch)
 		except ValueError:
@@ -104,21 +117,13 @@ def loadModel(loadForTraining=True):
 	#get model
 	trainingModel = resNetChessModel()
 	if loadForTraining:
-		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY/CONST.DATA_PARTITIONS), loss=sparseCrossEntropyLoss, metrics=[CONST.EVALUATION_METRIC])
+		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY), loss=["mean_squared_error", "categorical_crossentropy"])
 	trainingModel.summary()
 
-	#load checkpoint if available
-	checkPointName = getLastCheckpoint(trainingModel.name)
+	checkPointName = getLastCheckpoint()
 	if checkPointName:
+		# load checkpoint if available
 		trainingModel.load_weights(CONST.MODELS + checkPointName)
-
-		if loadForTraining:
-			savedOptimizerStates = h5py.File(CONST.MODELS + checkPointName, mode="r")["optimizer_weights"]
-			optimizerWeightNames = [n.decode("utf8") for n in savedOptimizerStates.attrs["weight_names"]]
-			optimizerWeightValues = [savedOptimizerStates[n] for n in optimizerWeightNames]
-
-			trainingModel._make_train_function()
-			trainingModel.optimizer.set_weights(optimizerWeightValues)
 	else:
 		# save initial model
 		trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_NAME_SUFFIX)
@@ -127,28 +132,20 @@ def loadModel(loadForTraining=True):
 
 def trainModel():
 	# get model
-	trainingModel, _ = loadModel()
-	initialEpoch = getLastEpoch(trainingModel.name)
+	trainingModel = loadModel()
+	initialEpoch = getLastEpoch()
 
+	# prepare data generators
+	trainingDataGenerator = DataSequence(batchSize=CONST.BATCH_SIZE)
+	
 	# prepare callbacks
 	callbacks = []
-	callbacks.append(ModelCheckpoint(CONST.MODELS + trainingModel.name + CONST.MODEL_CHECKPOINT_NAME_SUFFIX, monitor=CONST.EVALUATION_METRIC, mode='max', save_best_only=True, period=CONST.CHECKPOINT_PERIOD))
-	callbacks.append(LearningRateScheduler(lrScheduler))
-
 	if CONST.USE_TENSORBOARD:
 		callbacks.append(TensorBoard(log_dir=CONST.LOGS + "tensorboard-log", histogram_freq=1, batch_size=CONST.BATCH_SIZE, write_graph=False, write_grads=True, write_images=False))
 
 	# start training
-	#_ = trainingModel.fit_generator([], epochs=CONST.NUM_EPOCHS*CONST.DATA_PARTITIONS, callbacks=callbacks, initial_epoch=initialEpoch)
+	_ = trainingModel.fit(trainingDataGenerator, epochs=CONST.NUM_EPOCHS, callbacks=callbacks)
 
 	# save model after training
-	#trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_TRAINED_NAME_SUFFIX)
-
-
-def main():
-	trainModel()
-
-if __name__ == "__main__":
-	main()
-
+	trainingModel.save(CONST.MODELS + trainingModel.name + "-" + str(initialEpoch+1) + CONST.MODEL_NAME_SUFFIX)
 

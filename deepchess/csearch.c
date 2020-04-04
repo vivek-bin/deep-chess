@@ -6,7 +6,7 @@
 #define MEMORY_BLOCK_SIZE (1<<19)
 #define NUM_SIMULATIONS 800
 #define MAX_CHILDREN (PREDICTION_BATCH_SIZE-1)
-#define PREDICTION_BATCH_SIZE 128
+#define PREDICTION_BATCH_SIZE 256
 #define BACKPROP_DECAY 0.98
 #define MC_EXPLORATION_CONST 0.5
 #define STATE_HISTORY_LEN 10
@@ -36,6 +36,7 @@ static void __getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistor
 static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput);
 static Node* __initNodeChildren(Node *node, char actions[]);
 static void __test(PyObject *pyModel);
+static void __freeMem(PyObject *capsule);
 static PyObject* initTree(PyObject *self, PyObject *args);
 static PyObject* searchTree(PyObject *self, PyObject *args);
 static PyObject* test(PyObject *self, PyObject *args);
@@ -75,7 +76,7 @@ struct Node{
 
 
 	char previousAction[ACTION_SIZE];
-	float actionProbability;
+	double actionProbability;
 	Node *firstChild;
 	Node *sibling;
 };
@@ -308,15 +309,17 @@ static void __setChildrenHistories(Node *node, char *stateHistories[][BOARD_HIST
 static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput){
 	PyArrayObject *pyValues, *pyPolicies;
 	Node *child, *grandChild;
+	long idx;
 	int b;
 
 	pyValues = PyList_GetItem(predictionOutput, 0);
 	pyPolicies = PyList_GetItem(predictionOutput, 1);
 
 	for(b=0, child=(node->firstChild); child!=NULL; child=(child->sibling), b++){
-		child->stateValue = *((float*)PyArray_GETPTR1(pyValues, b));
+		child->stateValue = *((float*)PyArray_GETPTR2(pyValues, b, 0));
 		for(grandChild=(child->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
-			grandChild->actionProbability = ((float*)PyArray_GETPTR1(pyPolicies, b))[__actionIndex(grandChild->previousAction)];
+			idx = __actionIndex(grandChild->previousAction);
+			grandChild->actionProbability = *((float*)PyArray_GETPTR2(pyPolicies, b, idx));
 		}
 	}
 }
@@ -474,12 +477,13 @@ static void __saveNodeInfo(Node *node){
 
 	fprintf(oFile, "  \"END\" : %i, \n", node->end);
 	fprintf(oFile, "  \"REWARD\" : %i, \n", node->reward);
+	fprintf(oFile, "  \"STATE_VALUE\" : %f, \n", node->stateValue);
 	fprintf(oFile, "  \"VALUE\" : %f, \n", __nodeValue(node, 0));
 	fprintf(oFile, "  \"EXPLORATORY_VALUE\" : %f, \n", __nodeValue(node, 1));
 	fprintf(oFile, "  \"TRAINING\" : %i, \n", node->common->training);
 
 	fprintf(oFile, "  \"GAME_NUMBER\" : %li, \n", node->common->gameIndex);
-	fprintf(oFile, "  \"MOVE_NUMBER\" : %i, \n", node->depth);
+	fprintf(oFile, "  \"MOVE_NUMBER\" : %i \n", node->depth);
 	fprintf(oFile, "}");
 	
 	fclose (oFile);
@@ -697,6 +701,9 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	Node *root, *best;
 	char bestActions[2*ACTION_SIZE];
 	int i;
+	time_t t;
+
+	srand((unsigned) time(&t));
 	import_array();
 
 	pyRoot = PyTuple_GetItem(args, 0);
@@ -724,6 +731,57 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	PyTuple_SetItem(output, 0, PyCapsule_New((void*)best, NULL, __freePyTree));
 	PyTuple_SetItem(output, 1, pyBestAction);
 	return output;
+}
+
+static void __freeMem(PyObject *capsule){
+	void *ptr;
+	ptr = PyCapsule_GetPointer(capsule, NULL);
+	free(ptr);
+}
+
+static PyObject* allocNpMemory(PyObject *self, PyObject *args){
+	char *boardModelInput, *otherModelInput;
+	PyObject *pyOutput;
+
+	boardModelInput = malloc(PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE);
+	otherModelInput = malloc(PREDICTION_BATCH_SIZE * 3 * BOARD_SIZE*BOARD_SIZE);
+
+	pyOutput = PyTuple_New(2);
+	PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)boardModelInput, NULL, __freeMem));
+	PyTuple_SetItem(pyOutput, 1, PyCapsule_New((void*)otherModelInput, NULL, __freeMem));
+	return pyOutput;
+}
+
+static PyObject* prepareModelInput(PyObject *self, PyObject *args){
+	PyObject *pCapsules, *pyStateHistories, *pyStateHistory;
+	char *boardModelInput, *otherModelInput;
+	char *stateHistories[PREDICTION_BATCH_SIZE][BOARD_HISTORY];
+	char states[PREDICTION_BATCH_SIZE * BOARD_HISTORY][STATE_SIZE];
+	int batchSize, i, j, s, offset, numStates;
+
+	import_array();
+
+	pyStateHistories = PyTuple_GetItem(args, 0);
+	pCapsules = PyTuple_GetItem(args, 1);
+
+	boardModelInput = PyCapsule_GetPointer(PyTuple_GetItem(pCapsules, 0), NULL);
+	otherModelInput = PyCapsule_GetPointer(PyTuple_GetItem(pCapsules, 1), NULL);
+
+	batchSize = PyTuple_Size(pyStateHistories);
+	for(i=0, s=0; i<batchSize; i++){
+		pyStateHistory = PyTuple_GetItem(pyStateHistories, i);
+		numStates = PyTuple_Size(pyStateHistory);
+		for(j=0; j<BOARD_HISTORY; j++){
+			stateHistories[i][j] = NULL;
+		}
+		offset = numStates>BOARD_HISTORY?numStates-BOARD_HISTORY:0;
+		for(j=0; j+offset<numStates && j<BOARD_HISTORY; j++, s++){
+			__stateFromPy(PyTuple_GetItem(pyStateHistory, j+offset), states[s]);
+			stateHistories[i][j] = states[s];
+		}
+	}
+
+	return __prepareModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
 }
 
 static void __test(PyObject *pyModel){
@@ -766,6 +824,8 @@ static PyObject* test(PyObject *self, PyObject *args){
 static PyMethodDef csearchMethods[] = {
     {"initTree",  initTree, METH_VARARGS, "create new tree"},
     {"searchTree",  searchTree, METH_VARARGS, "search for next move."},
+    {"allocNpMemory",  allocNpMemory, METH_VARARGS, "allocate memory for numpy arrays."},
+    {"prepareModelInput",  prepareModelInput, METH_VARARGS, "prepare model input from histories."},
     {"test",  test, METH_VARARGS, "individual test func."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
@@ -781,6 +841,7 @@ static struct PyModuleDef csearchModule = {
 PyMODINIT_FUNC PyInit_csearch(void){
 	PyObject *module;
 	module = PyModule_Create(&csearchModule);
+	PyModule_AddIntConstant(module, "BOARD_HISTORY", BOARD_HISTORY);
 
     return module;
 }

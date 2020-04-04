@@ -27,7 +27,7 @@
 #define IS_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?1:0)
 #define IS_NOT_VALID_IDX(x) ((x>=0 && x<BOARD_SIZE)?0:1)
 #define CASTLE_MOVES(p, s) (p==WHITE_IDX?(s==LEFT_CASTLE?CASTLE_WHITE_LEFT:CASTLE_WHITE_RIGHT):(s==LEFT_CASTLE?CASTLE_BLACK_LEFT:CASTLE_BLACK_RIGHT))
-#define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE + 1)
+#define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE)
 
 void __copyState(char state[], char blankState[]);
 int __getBoardBox(char state[], int player, int row, int col);

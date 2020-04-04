@@ -5,17 +5,17 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
-from . import trainmodel as TM
 import math
 import random
 import json
 import os
 
 NUM_SIMULATIONS = 800
-PREDICTION_BATCH_SIZE = 128
+PREDICTION_BATCH_SIZE = 256
 BACKPROP_DECAY = 0.98
 MC_EXPLORATION_CONST = 0.5
 STATE_HISTORY_LEN = 10
+BOARD_HISTORY = 4
 
 
 class Node():
@@ -76,7 +76,7 @@ class Node():
 		return tuple(stateHistory)
 
 	def getModelPrediction(self, data):
-		modelInput = TM.prepareModelInput(data)
+		modelInput = prepareModelInput(data)
 		return Node.model.predict(modelInput, batch_size=PREDICTION_BATCH_SIZE)
 
 	def setValuePolicy(self):
@@ -186,6 +186,7 @@ class Node():
 
 		tempDict["END"] = self.end
 		tempDict["REWARD"] = self.reward
+		tempDict["STATE_VALUE"] = self.stateValue
 		tempDict["VALUE"] = self.nodeValue(explore=False)
 		tempDict["EXPLORATORY_VALUE"] = self.nodeValue()
 		tempDict["TRAINING"] = int(Node.training)
@@ -228,4 +229,42 @@ def searchTree(root):
 	root.children = [bestChild]			# keep only played move history
 
 	return bestChild, bestAction
+
+
+def allocNpMemory():
+	return False
+
+
+def prepareModelInput(stateHistories, __memObj):		#mem object for compatibility with C module
+	batchSize = len(stateHistories)
+	boardInput = np.ones((batchSize, BOARD_HISTORY, 2, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8) * EG.EMPTY
+	playerInput = np.ones((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+	castlingStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+	enPassantStateInput = np.zeros((batchSize, 1, EG.BOARD_SIZE, EG.BOARD_SIZE), dtype=np.int8)
+	for i, stateHistory in enumerate(stateHistories):
+		for j in range(min(BOARD_HISTORY, len(stateHistory))):
+			boardInput[i, j, :, :, :] = np.array(stateHistory[-1-j]["BOARD"], dtype=np.int8)
+		
+		state = stateHistory[-1]
+
+		playerInput[i, 0] *= state["PLAYER"]
+		
+		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
+			if state["CASTLING_AVAILABLE"][player][EG.LEFT_CASTLE]:
+				castlingStateInput[i, 0, EG.KING_LINE[player], :EG.BOARD_SIZE//2] = 1
+			if state["CASTLING_AVAILABLE"][player][EG.RIGHT_CASTLE]:
+				castlingStateInput[i, 0, EG.KING_LINE[player], (EG.BOARD_SIZE//2 - 1):] = 1
+		
+		for player in [EG.WHITE_IDX, EG.BLACK_IDX]:
+			if state["EN_PASSANT"][player] >= 0:
+				movement = EG.PAWN_DIRECTION[player][0] * EG.PAWN_NORMAL_MOVE[0]
+				pawnPos = EG.KING_LINE[player]
+				for _ in range(3):
+					pawnPos = pawnPos + movement
+					enPassantStateInput[i, 0, pawnPos, state["EN_PASSANT"][player]] = 1
+
+	boardInput = boardInput.reshape((batchSize, -1, EG.BOARD_SIZE, EG.BOARD_SIZE))
+	stateInput = np.concatenate([playerInput, castlingStateInput, enPassantStateInput], axis=1)
+
+	return (boardInput, stateInput)
 

@@ -39,7 +39,7 @@ PAWN_NORMAL_MOVE = (1, 0)
 PAWN_FIRST_MOVE = (2, 0)
 PAWN_DIRECTION = {WHITE_IDX:(1, 1), BLACK_IDX:(-1, 1)}
 
-MAX_POSSIBLE_MOVES = BOARD_SIZE**4 + 1 + 2 * len(PROMOTIONS) * BOARD_SIZE**2
+MAX_POSSIBLE_MOVES = BOARD_SIZE**4 + 2 * len(PROMOTIONS) * BOARD_SIZE**2
 
 def ADDL(l1, l2):
 	assert len(l1) == len(l2)
@@ -61,7 +61,7 @@ def actionIndex(move):
 		newPawnLinearPos = (newPos[0] // (BOARD_SIZE - 1)) * BOARD_SIZE + newPos[1]
 		idx = (newPawnLinearPos * BOARD_SIZE + currentPos[1]) * len(PROMOTIONS) + promotion
 
-		idx = idx + 1 + (BOARD_SIZE**4)
+		idx = idx + (BOARD_SIZE**4)
 	else:
 		currentLinearPos = currentPos[0] * BOARD_SIZE + currentPos[1]
 		newLinearPos = newPos[0] * BOARD_SIZE + newPos[1]
@@ -78,7 +78,7 @@ def actionFromIndex(idx):
 		newLinearPos = idx % (BOARD_SIZE * BOARD_SIZE)
 		newPos = (newLinearPos // BOARD_SIZE, newLinearPos % BOARD_SIZE)
 	else:
-		idx = idx - 1 - (BOARD_SIZE**4)
+		idx = idx - (BOARD_SIZE**4)
 
 		promotion = PROMOTIONS[idx % len(PROMOTIONS)]
 		idx = idx // len(PROMOTIONS)
