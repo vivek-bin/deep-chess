@@ -11,8 +11,7 @@ import json
 import os
 import numpy as np
 
-NUM_SIMULATIONS = 800
-PREDICTION_BATCH_SIZE = 256
+NUM_SIMULATIONS = 500
 BACKPROP_DECAY = 0.98
 MC_EXPLORATION_CONST = 0.5
 STATE_HISTORY_LEN = 10
@@ -22,16 +21,16 @@ BOARD_HISTORY = 4
 class Node():
 	count = 0
 	training = True
-	model = None
+	predictor = None
 	gameIndex = 0
 	lowStateMemoryUse = True
 	dataPath = None
 
-	def __init__(self, training=None, model=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None, gameIndex=None, dataPath=None):
+	def __init__(self, training=None, predictor=None, parent=None, previousAction=None, actionProbability=None, state=None, actions=None, end=None, reward=None, stateHistory=None, gameIndex=None, dataPath=None):
 		assert (stateHistory is None) ^ (parent is None)		# one or the other
 
 		Node.count += 1
-		Node.model = model if model else Node.model
+		Node.predictor = predictor if predictor else Node.predictor
 		Node.training = training if training else Node.training
 		Node.gameIndex = gameIndex if gameIndex else Node.gameIndex
 		Node.dataPath = dataPath if dataPath else Node.dataPath
@@ -78,7 +77,7 @@ class Node():
 
 	def getModelPrediction(self, data):
 		modelInput = prepareModelInput(data, False)
-		return Node.model.predict(modelInput, batch_size=PREDICTION_BATCH_SIZE)
+		return Node.predictor(modelInput)
 
 	def setValuePolicy(self):
 		value, policy = self.getModelPrediction([self.getStateHistory()])
@@ -202,7 +201,7 @@ class Node():
 
 
 
-def initTree(state, actions, end, reward, history, model, dataPath):
+def initTree(state, actions, end, reward, history, predictor, dataPath, training):
 	if not actions:
 		return None		# terminal node already
 
@@ -211,7 +210,7 @@ def initTree(state, actions, end, reward, history, model, dataPath):
 	gameIndex = max(gameIndices + [-1]) + 1
 	
 	stateHistory = tuple((x["STATE"] for x in history))
-	root = Node(training=True, model=model, actionProbability=1, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory, gameIndex=gameIndex, dataPath=dataPath)
+	root = Node(training=training, predictor=predictor, actionProbability=1, state=state, actions=actions, end=end, reward=reward, stateHistory=stateHistory, gameIndex=gameIndex, dataPath=dataPath)
 	root.setValuePolicy()
 
 	return root

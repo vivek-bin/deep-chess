@@ -4,9 +4,7 @@
 #include <dirent.h>
 #include <math.h>
 #define MEMORY_BLOCK_SIZE (1<<19)
-#define NUM_SIMULATIONS 800
-#define MAX_CHILDREN (PREDICTION_BATCH_SIZE-1)
-#define PREDICTION_BATCH_SIZE 256
+#define NUM_SIMULATIONS 500
 #define BACKPROP_DECAY 0.98
 #define MC_EXPLORATION_CONST 0.5
 #define STATE_HISTORY_LEN 10
@@ -46,7 +44,7 @@ static PyObject* test(PyObject *self, PyObject *args);
 struct NodeCommon{
 	long count;
 	char training;
-	PyObject *model;
+	PyObject *predictor;
 	long gameIndex;
 	char dataPath[2550];
 	char rootStateHistory[STATE_HISTORY_LEN][STATE_SIZE];
@@ -155,22 +153,23 @@ static PyObject* __prepareModelInput(int batchSize, char *stateHistories[][BOARD
 
 	// initialize used area = 0
 	for(i=0; i<batchSize * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE; i++){
-		boardModelInput[i] = 0;
+		boardModelInput[i] = -2;
 	}
 	// initialize unused area = -1
-	for(; i<PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE; i++){
+	for(; i<MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE; i++){
 		boardModelInput[i] = -1;
 	}
 	for(b=0; b<batchSize; b++){
 		for(j=0; j<BOARD_HISTORY && stateHistories[b][j]!= NULL; j++);
 		modelInputOffset = (j>BOARD_HISTORY?0:BOARD_HISTORY-j);
-		historyOffset = (j>BOARD_HISTORY?j-BOARD_HISTORY:0);
-		for(h=0; h<BOARD_HISTORY && h<j; h++){
+		historyOffset = j-1;//(j>BOARD_HISTORY?j-BOARD_HISTORY:0);
+		for(h=0; h<BOARD_HISTORY && h>=historyOffset; h++){		//h<j
 			for(p=0; p<2; p++){
 				for(r=0; r<BOARD_SIZE; r++){
 					for(c=0; c<BOARD_SIZE; c++){
-						idx = (((b*BOARD_HISTORY + h+modelInputOffset)*2 + p)*BOARD_SIZE + r)*BOARD_SIZE + c;
-						boardModelInput[idx] = __getBoardBox(stateHistories[b][h+historyOffset], p, r, c);
+						idx = (((b*BOARD_HISTORY + h)*2 + p)*BOARD_SIZE + r)*BOARD_SIZE + c;
+						//idx = (((b*BOARD_HISTORY + h+modelInputOffset)*2 + p)*BOARD_SIZE + r)*BOARD_SIZE + c;
+						boardModelInput[idx] = __getBoardBox(stateHistories[b][historyOffset-h], p, r, c);
 					}
 				}
 			}
@@ -183,7 +182,7 @@ static PyObject* __prepareModelInput(int batchSize, char *stateHistories[][BOARD
 		otherModelInput[i] = 0;
 	}
 	// initialize unused area = -1
-	for(; i<PREDICTION_BATCH_SIZE * 3 * BOARD_SIZE*BOARD_SIZE; i++){
+	for(; i<MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE; i++){
 		otherModelInput[i] = -1;
 	}
 
@@ -255,7 +254,7 @@ static void __expandChildren(Node *node){
 	Node *child, *previousChild, *nextChild;
 
 	char *repeatStateHistory[STATE_HISTORY_LEN];
-	int end, reward;
+	int endIdx, reward;
 	int j;
 
 	__getStateHistory(node, STATE_HISTORY_LEN, repeatStateHistory);
@@ -263,10 +262,10 @@ static void __expandChildren(Node *node){
 	for(previousChild=NULL, child=(node->firstChild); child!=NULL; previousChild=child, child=nextChild){
 		nextChild = (child->sibling);
 		__copyState(node->state, child->state);
-		__play(child->state, child->previousAction, child->depth, actions, &end, &reward);
+		__play(child->state, child->previousAction, child->depth, actions, &endIdx, &reward);
 		
 		child->stateSetFlag = 1;
-		child->end = end>=0?1:0;
+		child->end = endIdx>=0?1:0;
 		child->reward = reward?-1:0;
 		for(j=0; j<MAX_AVAILABLE_MOVES && actions[j*ACTION_SIZE]>=0; j++);
 		child->numActions = j;
@@ -292,12 +291,18 @@ static void __expandChildren(Node *node){
 static void __setChildrenHistories(Node *node, char *stateHistories[][BOARD_HISTORY]){
 	Node *child;
 	char *nodeStateHistory[BOARD_HISTORY];
-	int b, i;
+	int b, i, j;
+
+	for(i=0; i<MAX_AVAILABLE_MOVES; i++){
+		for(j=0; j<BOARD_HISTORY; j++){
+			stateHistories[i][j] = NULL;
+		}
+	}
 
 	__getStateHistory(node, BOARD_HISTORY, nodeStateHistory);
 
 	for(b=0, child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		for(i=0; i<BOARD_HISTORY-1; i++){
+		for(i=0; i<BOARD_HISTORY-1 && nodeStateHistory[i+1]!=NULL; i++){
 			stateHistories[b][i] = nodeStateHistory[i+1];
 		}
 		stateHistories[b++][i] = child->state;
@@ -346,6 +351,12 @@ static Node* __bestChild(Node *node){
 		children[count] = child;//printf("\n          %f  %f %x", values[count], children[count]->stateValue, children[count]);
 	}
 
+	// if we have a move which ends the game with a win(!draw), we always take it
+	for(i=0; i<count; i++){
+		if((children[i]->end) && (children[i]->reward)){
+			return children[i];
+		}
+	}
 	
 	if(node->common->training){
 		for(minimumValue=999999999, i=0; i<count; i++){
@@ -401,9 +412,9 @@ static void __backPropogate(Node *node){
 }
 
 static void __runSimulation(Node *node){
-	char *stateHistories[PREDICTION_BATCH_SIZE][BOARD_HISTORY];
-	char boardModelInput[PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
-	char otherModelInput[PREDICTION_BATCH_SIZE * 3 * BOARD_SIZE*BOARD_SIZE];
+	char *stateHistories[MAX_AVAILABLE_MOVES][BOARD_HISTORY];
+	char boardModelInput[MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
+	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
 	Node *leaf, *child;
 	PyObject *predictionInput, *predictionOutput;
 	int batchSize;
@@ -411,18 +422,21 @@ static void __runSimulation(Node *node){
 	leaf = __getLeaf(node);
 	if(leaf->end==0){
 		// find batch size
-		for(batchSize=0, child=(leaf->firstChild); batchSize<MAX_CHILDREN && child!=NULL; batchSize++, child=(child->sibling));
+		for(batchSize=0, child=(leaf->firstChild); batchSize<MAX_AVAILABLE_MOVES && child!=NULL; batchSize++, child=(child->sibling));
 	
 		//fetch history
 		__expandChildren(leaf);
 		__setChildrenHistories(leaf, stateHistories);
+		printf("      4   \n");
 
 		//prepare model input as numpy
 		predictionInput = __prepareModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
+		printf("      5   \n");
 		if(predictionInput==NULL){printf(" ---- prediction input creation error \n");PyErr_Print();}
 
 		//prediction using model
-		predictionOutput = PyObject_CallMethod(leaf->common->model, "predict", "O", predictionInput);
+		predictionOutput = PyObject_CallFunction(leaf->common->predictor, "O", predictionInput);
+		printf("      6   \n");
 		if(predictionOutput==NULL){printf(" ---- prediction error \n");PyErr_Print();}
 		
 		//set children value policy
@@ -517,12 +531,12 @@ static void __freeTree(Node *node){
 	__nodeFree(node);
 
 	if(common->count == 0){
+		printf("\nFreeing tree memory \n");
 		for(child=(common->nodeBank); child!=NULL; child=nextChild){
 			nextChild = child->sibling;
 			free(child);
 		}
 		free(common);
-		printf("\nFreeing tree \n");
 	}
 }
 
@@ -531,10 +545,11 @@ static void __freePyTree(PyObject *pyNode){
 	node = (Node*)PyCapsule_GetPointer(pyNode, NULL);
 	node->common->pyCounter--;
 	if(node->common->pyCounter==0){
+		printf("\nFreeing py tree \n");
 		while(node->parent != NULL){
 			node = node->parent;
 		}
-		Py_XDECREF(node->common->model);
+		Py_XDECREF(node->common->predictor);
 		__freeTree(node);
 	}
 }
@@ -580,7 +595,7 @@ static void __getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistor
 static Node* __initNodeChildren(Node *node, char actions[]){
 	Node *child, *previousChild, *firstChild;
 	int i, j, n;
-	for(n=0; n<MAX_CHILDREN && actions[n*5]>=0; n++);
+	for(n=0; n<MAX_AVAILABLE_MOVES && actions[n*5]>=0; n++);
 	if(n==0){
 		return NULL;
 	}
@@ -628,22 +643,22 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 }
 
 static PyObject* initTree(PyObject *self, PyObject *args){
-	PyObject *pyState, *pyActions, *pyHistory, *pyModel, *predictionInput, *predictionOutput;
+	PyObject *pyState, *pyActions, *pyHistory, *pyPredictor, *predictionInput, *predictionOutput;
 	Node *root;
 	NodeCommon *common;
-	int end, reward, i;
+	int end, reward, training, i;
 	char actions[MAX_AVAILABLE_MOVES * ACTION_SIZE];
 	char *dataPath;
 
 	char *stateHistories[1][BOARD_HISTORY];
-	char boardModelInput[PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
-	char otherModelInput[PREDICTION_BATCH_SIZE * 3 * BOARD_SIZE*BOARD_SIZE];
+	char boardModelInput[MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
+	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
 	Node temp;
 
 
 	import_array();
 
-	PyArg_ParseTuple(args, "OOiiOOs", &pyState, &pyActions, &end, &reward, &pyHistory, &pyModel, &dataPath);
+	PyArg_ParseTuple(args, "OOiiOOsi", &pyState, &pyActions, &end, &reward, &pyHistory, &pyPredictor, &dataPath, &training);
 	for(i=0; i<MAX_AVAILABLE_MOVES * ACTION_SIZE; i++){
 		actions[i] = -1;
 	}
@@ -656,9 +671,9 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	common->count = 1;
 	common->rootStateHistoryLen = PyList_Size(pyHistory);
 	__getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
-	common->model = pyModel;	Py_XINCREF(pyModel);
+	common->predictor = pyPredictor;	Py_XINCREF(pyPredictor);
 	common->gameIndex = __lastGameIndex(dataPath) + 1;
-	common->training = 1;
+	common->training = training;
 	common->pyCounter = 1;
 	strcpy(common->dataPath, dataPath);
 	common->nodeBank = NULL;
@@ -671,7 +686,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	root->numActions = PyTuple_Size(pyActions);
 	root->parent = NULL;
 	root->sibling = NULL;
-	root->depth = PyList_Size(pyHistory) + 1;
+	root->depth = PyList_Size(pyHistory);
 	root->isTop = 1;
 	root->stateSetFlag = 1;
 	root->firstChild = __initNodeChildren(root, actions);
@@ -686,7 +701,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 
 	__getStateHistory(root, BOARD_HISTORY, stateHistories[0]);
 	predictionInput = __prepareModelInput(1, stateHistories, boardModelInput, otherModelInput);
-	predictionOutput = PyObject_CallMethod(root->common->model, "predict", "O", predictionInput);
+	predictionOutput = PyObject_CallFunction(root->common->predictor, "O", predictionInput);
 	temp.firstChild = root;
 	__setChildrenValuePolicy(&temp, predictionOutput);
 	Py_XDECREF(predictionInput);Py_XDECREF(predictionOutput);
@@ -718,6 +733,7 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	best = __bestChild(root);
 	__removeOtherChildren(root, best);
 	root->common->pyCounter++;
+	// __displayState(best->state);
 
 	for(i=0; i<ACTION_SIZE;i++){bestActions[i] = best->previousAction[i];}
 	for(; i<2*ACTION_SIZE;i++){bestActions[i] = -1;}
@@ -742,8 +758,8 @@ static PyObject* allocNpMemory(PyObject *self, PyObject *args){
 	char *boardModelInput, *otherModelInput;
 	PyObject *pyOutput;
 
-	boardModelInput = malloc(PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE);
-	otherModelInput = malloc(PREDICTION_BATCH_SIZE * 3 * BOARD_SIZE*BOARD_SIZE);
+	boardModelInput = malloc(MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE);
+	otherModelInput = malloc(MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE);
 
 	pyOutput = PyTuple_New(2);
 	PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)boardModelInput, NULL, __freeMem));
@@ -754,8 +770,8 @@ static PyObject* allocNpMemory(PyObject *self, PyObject *args){
 static PyObject* prepareModelInput(PyObject *self, PyObject *args){
 	PyObject *pCapsules, *pyStateHistories, *pyStateHistory;
 	char *boardModelInput, *otherModelInput;
-	char *stateHistories[PREDICTION_BATCH_SIZE][BOARD_HISTORY];
-	char states[PREDICTION_BATCH_SIZE * BOARD_HISTORY][STATE_SIZE];
+	char *stateHistories[MAX_AVAILABLE_MOVES][BOARD_HISTORY];
+	char states[MAX_AVAILABLE_MOVES * BOARD_HISTORY][STATE_SIZE];
 	int batchSize, i, j, s, offset, numStates;
 
 	import_array();
@@ -789,12 +805,12 @@ static void __test(PyObject *pyModel){
 	npy_intp dims[4];
 	int i;
 
-	char boardModelInput[PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
-	char otherModelInput[PREDICTION_BATCH_SIZE * 3 * BOARD_SIZE*BOARD_SIZE];
+	char boardModelInput[MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
+	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
 
 
-	for(i=0;i<PREDICTION_BATCH_SIZE * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE;i++)boardModelInput[i]=0;
-	for(i=0;i<PREDICTION_BATCH_SIZE * 3*BOARD_SIZE*BOARD_SIZE;i++)otherModelInput[i]=0;
+	for(i=0;i<MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE;i++)boardModelInput[i]=0;
+	for(i=0;i<MAX_AVAILABLE_MOVES * 3*BOARD_SIZE*BOARD_SIZE;i++)otherModelInput[i]=0;
 	
 	dims[0] = 2;	dims[1] = BOARD_HISTORY*2;	dims[2] = BOARD_SIZE;	dims[3] = BOARD_SIZE;
 	npBoard = PyArray_SimpleNewFromData(4, dims, NPY_INT8, boardModelInput);
@@ -803,7 +819,7 @@ static void __test(PyObject *pyModel){
 
 	printf("\n-----------------in func2----------------- \n");
 	
-	predictionOutput = PyObject_CallMethod(pyModel, "predict", "(OO)i", npBoard, npOther, PREDICTION_BATCH_SIZE);
+	predictionOutput = PyObject_CallMethod(pyModel, "predict", "(OO)i", npBoard, npOther, MAX_AVAILABLE_MOVES);
 	PyErr_Print();
 	printf("\n-----------------in func30----------------- %s \n", PyBytes_AsString(PyUnicode_AsUTF8String((PyObject_Str(PyObject_Type(predictionOutput))))));
 	printf("\n-----------------in func31----------------- %s \n", PyBytes_AsString(PyUnicode_AsUTF8String((PyObject_Str(PyObject_GetAttrString(PyList_GetItem(predictionOutput, 1), "shape"))))));

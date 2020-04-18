@@ -192,7 +192,7 @@ def testCSearch():
 	else:
 		raise ImportError
 	if CONST.ENGINE_TYPE == "PY":
-		from . import search as SE
+		from deepchess import search as SE
 	elif CONST.ENGINE_TYPE == "C":
 		import csearch as SE
 	else:
@@ -223,7 +223,39 @@ def testCSearch():
 	root = SE.initTree(state, actions, end, reward, [], model, CONST.DATA)
 	root, action = SE.searchTree(root)
 	
+def numpyInputCheck():
+	import numpy as np
+
+	import deepchess.constants as CONST
+	import deepchess.trainmodel as TM
+	import cengine as EG
+	
+	from deepchess import search as SEP
+	import csearch as SEC
+
+	def predictor(ip):
+		print(ip[0])
+		print("-"*50)
+		print(ip[1])
+		print("|"*50)
+
+		return [np.zeros((1, 1)), np.ones((1, EG.MAX_POSSIBLE_MOVES))*0.1]
+
+	mp = SEP.allocNpMemory()
+	statep, actionsp, endp, rewardp = EG.init()
+	rootp = SEP.initTree(statep, actionsp, endp, rewardp, [], predictor, CONST.DATA, False)
+
+	mc = SEC.allocNpMemory()
+	statec, actionsc, endc, rewardc = EG.init()
+	rootc = SEC.initTree(statec, actionsc, endc, rewardc, [], predictor, CONST.DATA, False)
+	
+		
+	#rootp, action = SE.searchTree(rootp)
+	#rootc, action = SE.searchTree(rootc)
+
+
+	
 
 print(CONST.LAPSED_TIME())
-testCSearch()
+numpyInputCheck()
 print(CONST.LAPSED_TIME())

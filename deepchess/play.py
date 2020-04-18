@@ -21,7 +21,7 @@ import psutil
 
 moveList = []
 
-def printBoard(state):
+def printBoard(state, duration, end):
 	if CONST.DISPLAY_TEXT_BOARD:
 		whitesBoard = state["BOARD"][EG.WHITE_IDX]
 		blacksBoard = state["BOARD"][EG.BLACK_IDX]
@@ -31,7 +31,7 @@ def printBoard(state):
 
 	if CONST.DISPLAY_TK_BOARD:
 		displayTk(state)
-	print("current player:", state["PLAYER"])
+	print("Player:", state["PLAYER"], " "*15, "Move No:", duration, " "*15, "Result:", end)
 	print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
 	print(CONST.LAPSED_TIME())
 
@@ -127,9 +127,10 @@ def playGame():
 
 	state, actions, end, reward = EG.init()
 	if CONST.SHOW_BOARDS:
-		printBoard(state)
+		printBoard(state, 0, False)
 	if CONST.MC_SEARCH_MOVE:
 		model = TM.loadModel(loadForTraining=False)
+		predictor = lambda x:model.predict(copy.deepcopy(x), batch_size=CONST.PREDICTION_BATCH_SIZE)
 	
 	while not end:
 		if moveList:
@@ -138,9 +139,8 @@ def playGame():
 		elif CONST.MC_SEARCH_MOVE:
 			if root is None:
 				print("creating new tree")
-				root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA)
-				print("created tree")
-
+				root = SE.initTree(state, actions, end, reward, history, predictor, CONST.DATA, True)
+				
 			root, action = SE.searchTree(root)
 		else:
 			action = actions[int(random.random()*len(actions))]
@@ -148,22 +148,19 @@ def playGame():
 		
 		gc.collect()
 
-		nextState, actions, end, reward = EG.play(state, action, len(history))
+		nextState, actions, end, reward = EG.play(state, action, len(history)+1)
 
 		history.append(dict(STATE=state, ACTION=action, NEXT_STATE=nextState, REWARD=reward))
 		state = nextState
 		if CONST.SHOW_BOARDS:
-			print("move number :", len(history))
-			printBoard(state)
+			printBoard(state, len(history), end)
 
-	print(end, len(history))
-	printBoard(state)
 	return end, history
 
 def generateGame():
 	count = 0
 	state, actions, end, reward = EG.init()
-	root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA)
+	root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA, True)
 
 	model = TM.loadModel(loadForTraining=False)
 	

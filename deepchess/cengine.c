@@ -21,7 +21,7 @@ const int CASTLE_WHITE_RIGHT[][2] = {{0, BOARD_SIZE/2 - 1}, {0, BOARD_SIZE/2 + 0
 const int CASTLE_BLACK_LEFT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 2}, {BOARD_SIZE - 1, BOARD_SIZE/2 - 3}};
 const int CASTLE_BLACK_RIGHT[][2] = {{BOARD_SIZE - 1, BOARD_SIZE/2 - 1}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 0}, {BOARD_SIZE - 1, BOARD_SIZE/2 + 1}};
 
-const char END_MESSAGE[4][25] = {"draw,max_steps", "draw,only_kings", "draw,stalemate", "loss"};
+const char END_MESSAGE[4][25] = {"Draw, max steps", "Draw, only kings", "Draw, stalemate", "Loss"};
 
 
 static void __initializeBoard(char state[]);
@@ -45,6 +45,20 @@ static PyObject* play(PyObject *self, PyObject *args);
 static PyObject* playRandomTillEnd(PyObject *self, PyObject *args);
 PyMODINIT_FUNC PyInit_cengine(void);
 
+
+void __displayState(char state[]){
+	int i, j, boxW, boxB;
+	
+	for(i=0; i<BOARD_SIZE; i++){
+		for(j=0; j<BOARD_SIZE; j++){
+			boxW = __getBoardBox(state, WHITE_IDX, i, j);
+			boxB = __getBoardBox(state, BLACK_IDX, i, j);
+			printf("%5i", boxW - boxB);
+		}
+		printf("\n");
+	}
+	printf("Player: %i \n", __getPlayer(state));
+}
 
 void __copyState(char state[], char blankState[]){
 	int i;
@@ -762,7 +776,7 @@ void __play(char state[], char action[], int duration, char actions[], int *endI
 	__performAction(state, action);
 	__allActions(state, actions);
 	*endIdx = __checkGameEnd(state, actions, duration);
-	*reward = *endIdx==3? SCORING(OPPONENT(__getPlayer(state))): 0;
+	*reward = ((*endIdx)==3)? SCORING(OPPONENT(__getPlayer(state))): 0;
 }
 
 static PyObject* actionIndex(PyObject *self, PyObject *args){

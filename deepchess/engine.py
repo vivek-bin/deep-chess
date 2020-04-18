@@ -383,9 +383,7 @@ def positionCheck(state, position, movement, player):
 def checkGameEnd(state, numActions, duration):
 	reward = 0
 	end = False
-	if duration > MAX_GAME_STEPS:
-		end = "draw,max_steps"
-	elif not [box for playerBoard in state["BOARD"] for row in playerBoard for box in row if box not in (EMPTY, KING)]:
+	if not [box for playerBoard in state["BOARD"] for row in playerBoard for box in row if box not in (EMPTY, KING)]:
 		end = "draw,only_kings"
 	elif numActions == 0:
 		if kingAttacked(state, state["PLAYER"]):
@@ -394,6 +392,8 @@ def checkGameEnd(state, numActions, duration):
 			end = "loss"
 		else:
 			end = "draw,stalemate"
+	elif duration > MAX_GAME_STEPS:
+		end = "draw,max_steps"
 	
 	return end, reward
 
