@@ -45,7 +45,6 @@ static PyObject* test(PyObject *self, PyObject *args);
 
 struct NodeCommon{
 	long count;
-	long long idMax;
 	char training;
 	PyObject *model;
 	long gameIndex;
@@ -60,10 +59,9 @@ struct Node{
 	NodeCommon *common;
 
 	Node *parent;
-	long id;
 	char isTop;
 	char state[STATE_SIZE];
-	int end;
+	char end;
 	int reward;
 	int numActions;
 	int depth;
@@ -328,8 +326,9 @@ static double __nodeValue(Node *node, int explore){
 	double value;
 	value = node->stateValue + node->stateTotalValue;
 	if(explore && node->parent!=NULL && node->common->training){
-		value += MC_EXPLORATION_CONST * (node->actionProbability) * (node->parent->sqrtVisits);
+		value += MC_EXPLORATION_CONST * (node->parent->sqrtVisits);
 	}
+	value *= (node->actionProbability);
 	return value/(node->visits + 1);
 }
 
@@ -420,9 +419,11 @@ static void __runSimulation(Node *node){
 
 		//prepare model input as numpy
 		predictionInput = __prepareModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
+		if(predictionInput==NULL){printf(" ---- prediction input creation error \n");PyErr_Print();}
 
 		//prediction using model
 		predictionOutput = PyObject_CallMethod(leaf->common->model, "predict", "O", predictionInput);
+		if(predictionOutput==NULL){printf(" ---- prediction error \n");PyErr_Print();}
 		
 		//set children value policy
 		__setChildrenValuePolicy(leaf, predictionOutput);
@@ -504,22 +505,24 @@ static void __removeOtherChildren(Node *node, Node *best){
 
 static void __freeTree(Node *node){
 	Node *child, *nextChild;
+	NodeCommon *common;
 
-	if(node->isTop){
-		for(child=(node->common->nodeBank); child!=NULL; child=nextChild){
+	common = node->common;
+	
+	for(child=(node->firstChild); child!=NULL; child=nextChild){
+		nextChild = child->sibling;
+		__freeTree(child);
+	}
+	node->common->count--;
+	__nodeFree(node);
+
+	if(common->count == 0){
+		for(child=(common->nodeBank); child!=NULL; child=nextChild){
 			nextChild = child->sibling;
 			free(child);
 		}
-		free(node->common);
+		free(common);
 		printf("\nFreeing tree \n");
-	}
-	else{
-		for(child=(node->firstChild); child!=NULL; child=nextChild){
-			nextChild = child->sibling;
-			__freeTree(child);
-		}
-		node->common->count--;
-		__nodeFree(node);
 	}
 }
 
@@ -589,8 +592,6 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 		child->parent = node;
 		child->common = child->parent->common;
 		child->common->count++;
-		child->common->idMax++;
-		child->id = child->common->idMax;
 		child->depth = child->parent->depth + 1;
 		child->isTop = 0;
 		child->stateSetFlag = 0;
@@ -653,7 +654,6 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	common = malloc(sizeof(NodeCommon));
 	
 	common->count = 1;
-	common->idMax = 1;
 	common->rootStateHistoryLen = PyList_Size(pyHistory);
 	__getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
 	common->model = pyModel;	Py_XINCREF(pyModel);
@@ -667,7 +667,6 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	root->common = common;
 	__stateFromPy(pyState, root->state);
 	root->end = end?1:0;
-	root->id = root->common->idMax;
 	root->reward = reward?-1:0;
 	root->numActions = PyTuple_Size(pyActions);
 	root->parent = NULL;
@@ -709,11 +708,11 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	pyRoot = PyTuple_GetItem(args, 0);
 	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
 
-	printf("\nstart number of nodes %li ", root->common->count);
+	printf("\nstart number of nodes %li \n", root->common->count);
 	for(i=0; i<NUM_SIMULATIONS; i++){
 		__runSimulation(root);
 	}
-	printf("\nend number of nodes %li \n", root->common->count);
+	printf("end number of nodes %li \n", root->common->count);
 
 	__saveNodeInfo(root);
 	best = __bestChild(root);

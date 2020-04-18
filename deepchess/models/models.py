@@ -10,9 +10,9 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
-if CONST.ENGINE_TYPE == "PY":
-	from . import search as SE
-elif CONST.ENGINE_TYPE == "C":
+if CONST.SEARCH_TYPE == "PY":
+	from .. import search as SE
+elif CONST.SEARCH_TYPE == "C":
 	import csearch as SE
 else:
 	raise ImportError
@@ -38,22 +38,39 @@ def resNetChessModel():
 	for _ in range(CONST.MODEL_DEPTH):
 		x2 = layers.Conv2D(filters=CONST.NUM_FILTERS, kernel_size=CONST.CONV_SIZE, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
 		x2 = layers.BatchNormalization()(x2)
-		x2 = layers.Activation(CONST.CONV_ACTIVATION)(x2)
+		if CONST.CONV_ACTIVATION == "leakyRelu":
+			x2 = layers.LeakyReLU(CONST.CONV_ACTIVATION_CONST)(x2)
+		else:
+			x2 = layers.Activation(CONST.CONV_ACTIVATION)(x2)
 
 		x2 = layers.Conv2D(filters=CONST.NUM_FILTERS, kernel_size=CONST.CONV_SIZE, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x2)
 		x = layers.Add()([x, x2])
 		
 		x = layers.BatchNormalization()(x)
-		x = layers.Activation(CONST.CONV_ACTIVATION)(x)
+		if CONST.CONV_ACTIVATION == "leakyRelu":
+			x = layers.LeakyReLU(CONST.CONV_ACTIVATION_CONST)(x)
+		else:
+			x = layers.Activation(CONST.CONV_ACTIVATION)(x)
 
-	x = layers.Conv2D(filters=2*4, kernel_size=CONST.CONV_SIZE, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
-	x = layers.Activation(CONST.CONV_ACTIVATION)(x)
+	x = layers.Conv2D(filters=2, kernel_size=CONST.CONV_SIZE, padding="same", data_format=CONST.CONV_DATA_FORMAT, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	if CONST.CONV_ACTIVATION == "leakyRelu":
+		x = layers.LeakyReLU(CONST.CONV_ACTIVATION_CONST)(x)
+	else:
+		x = layers.Activation(CONST.CONV_ACTIVATION)(x)
 	x = layers.Flatten()(x)
 
-	valuePre = layers.Dense(EG.BOARD_SIZE*EG.BOARD_SIZE, activation=CONST.DENSE_ACTIVATION, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	valuePre = layers.Dense(EG.BOARD_SIZE*EG.BOARD_SIZE, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	if CONST.DENSE_ACTIVATION == "leakyRelu":
+		valuePre = layers.LeakyReLU(CONST.DENSE_ACTIVATION_CONST)(valuePre)
+	else:
+		valuePre = layers.Activation(CONST.DENSE_ACTIVATION)(valuePre)
 	valuePre = layers.Dense(1, kernel_regularizer=l2(CONST.L2_REGULARISATION))(valuePre)
 
-	policyPre = layers.Dense(2*4*EG.BOARD_SIZE*EG.BOARD_SIZE, activation=CONST.DENSE_ACTIVATION, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	policyPre = layers.Dense(EG.BOARD_SIZE*EG.BOARD_SIZE, kernel_regularizer=l2(CONST.L2_REGULARISATION))(x)
+	if CONST.DENSE_ACTIVATION == "leakyRelu":
+		policyPre = layers.LeakyReLU(CONST.DENSE_ACTIVATION_CONST)(policyPre)
+	else:
+		policyPre = layers.Activation(CONST.DENSE_ACTIVATION)(policyPre)
 	policyPre = layers.Dense(EG.MAX_POSSIBLE_MOVES, kernel_regularizer=l2(CONST.L2_REGULARISATION))(policyPre)
 
 	value = layers.Activation("tanh", name="value")(valuePre)

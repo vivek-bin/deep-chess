@@ -8,9 +8,9 @@ elif CONST.ENGINE_TYPE == "C":
 	import cengine as EG
 else:
 	raise ImportError
-if CONST.ENGINE_TYPE == "PY":
+if CONST.SEARCH_TYPE == "PY":
 	from . import search as SE
-elif CONST.ENGINE_TYPE == "C":
+elif CONST.SEARCH_TYPE == "C":
 	import csearch as SE
 else:
 	raise ImportError

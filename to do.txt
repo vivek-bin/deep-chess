@@ -1,2 +1,6 @@
 - loss function
 - check if state values and policy values populated/read correctly, esp in C 
+- convert to pytorch
+
+- check model input generation in C
+

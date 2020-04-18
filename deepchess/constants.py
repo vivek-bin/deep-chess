@@ -8,7 +8,6 @@ import sys
 
 #os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow as tf
-from tensorflow.keras import backend as K
 physical_devices = tf.config.list_physical_devices('GPU') 
 try: 
 	tf.config.experimental.set_memory_growth(physical_devices[0], True) 
@@ -36,6 +35,7 @@ class HiddenPrints:
 
 # game constants
 ENGINE_TYPE = "C"		#C or PY
+SEARCH_TYPE = "C"		#C or PY
 MC_SEARCH_MOVE = True
 DISPLAY_TEXT_BOARD = True
 DISPLAY_TK_BOARD = False
@@ -63,8 +63,10 @@ MODEL_DEPTH = 25
 
 L2_REGULARISATION = 1e-4
 CONV_DATA_FORMAT = "channels_last"
-CONV_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
-DENSE_ACTIVATION = lambda x: K.maximum(x, x * 0.1) # leaky relu
+CONV_ACTIVATION = "leakyRelu"
+DENSE_ACTIVATION = "leakyRelu"
+CONV_ACTIVATION_CONST = 0.1 # for leaky relu
+DENSE_ACTIVATION_CONST = 0.1 # for leaky relu
 NUM_FILTERS = 128
 CONV_SIZE = 3
 

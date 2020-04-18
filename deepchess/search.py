@@ -9,6 +9,7 @@ import math
 import random
 import json
 import os
+import numpy as np
 
 NUM_SIMULATIONS = 800
 PREDICTION_BATCH_SIZE = 256
@@ -76,7 +77,7 @@ class Node():
 		return tuple(stateHistory)
 
 	def getModelPrediction(self, data):
-		modelInput = prepareModelInput(data)
+		modelInput = prepareModelInput(data, False)
 		return Node.model.predict(modelInput, batch_size=PREDICTION_BATCH_SIZE)
 
 	def setValuePolicy(self):
