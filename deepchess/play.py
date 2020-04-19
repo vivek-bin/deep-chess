@@ -130,7 +130,7 @@ def playGame():
 		printBoard(state, 0, False)
 	if CONST.MC_SEARCH_MOVE:
 		model = TM.loadModel(loadForTraining=False)
-		predictor = lambda x:model.predict(copy.deepcopy(x), batch_size=CONST.PREDICTION_BATCH_SIZE)
+		predictor = lambda x:model.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
 	
 	while not end:
 		if moveList:
@@ -157,19 +157,16 @@ def playGame():
 
 	return end, history
 
-def generateGame():
-	count = 0
-	state, actions, end, reward = EG.init()
-	root = SE.initTree(state, actions, end, reward, history, model, CONST.DATA, True)
+def generateGames():
+	assert CONST.SEARCH_TYPE == "C"
 
 	model = TM.loadModel(loadForTraining=False)
-	
-	while not end:
-		root, action = SE.searchTree(root)
-		state, actions, end, reward = EG.play(state, action, count)
-		count += 1
-	
-	return reward
+	predictor = lambda x:model.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
+
+	state, actions, end, reward = EG.init()
+
+	SE.generateGames(state, actions, end, reward, [], predictor, CONST.DATA, True)
+
 
 
 if __name__ == "__main__":

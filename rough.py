@@ -225,6 +225,7 @@ def testCSearch():
 	
 def numpyInputCheck():
 	import numpy as np
+	import copy
 
 	import deepchess.constants as CONST
 	import deepchess.trainmodel as TM
@@ -233,13 +234,45 @@ def numpyInputCheck():
 	from deepchess import search as SEP
 	import csearch as SEC
 
-	def predictor(ip):
-		print(ip[0])
-		print("-"*50)
-		print(ip[1])
-		print("|"*50)
+	playIps = []
 
-		return [np.zeros((1, 1)), np.ones((1, EG.MAX_POSSIBLE_MOVES))*0.1]
+	def predictor(ip):
+		playIps[-1].append(copy.deepcopy(ip))
+		b = ip[0].shape[0]
+
+		return [np.zeros((b, 1)), np.ones((b, EG.MAX_POSSIBLE_MOVES))*0.1]
+
+	def displayBatch(ip, bIdx):
+		boards = ip[0][bIdx]
+		other = ip[1][bIdx]
+		
+		for r in range(EG.BOARD_SIZE):
+			opRow = []
+			for h in range(SEC.BOARD_HISTORY):
+				for p in range(2):
+					for c in range(EG.BOARD_SIZE):
+						opRow.append(str(boards[h*2+p][r][c]))
+					opRow.append("  ")
+				opRow.append("||  ")
+			print(" ".join(opRow))
+		print("-"*70)
+		for r in range(EG.BOARD_SIZE):
+			opRow = []
+			for o in range(3):
+				for c in range(EG.BOARD_SIZE):
+					opRow.append(str(other[o][r][c]))
+				opRow.append("  ")
+			print(" ".join(opRow))
+
+		print("")
+
+	def displayBatchPyC(ips, simulIdx, bIdx):
+		print("python")
+		displayBatch(ips[simulIdx*2+0], bIdx)
+		print("c")
+		displayBatch(ips[simulIdx*2+1], bIdx)
+		print("\n")
+
 
 	mp = SEP.allocNpMemory()
 	statep, actionsp, endp, rewardp = EG.init()
@@ -249,9 +282,14 @@ def numpyInputCheck():
 	statec, actionsc, endc, rewardc = EG.init()
 	rootc = SEC.initTree(statec, actionsc, endc, rewardc, [], predictor, CONST.DATA, False)
 	
-		
-	#rootp, action = SE.searchTree(rootp)
-	#rootc, action = SE.searchTree(rootc)
+
+	playIps.append([])
+	rootp, action = SEP.searchTree(rootp)
+	rootc, action = SEC.searchTree(rootc)
+
+	displayBatchPyC(playIps[-1], 1, 0)
+	displayBatchPyC(playIps[-1], 2, 0)
+	
 
 
 	

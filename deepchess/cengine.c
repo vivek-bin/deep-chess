@@ -53,7 +53,7 @@ void __displayState(char state[]){
 		for(j=0; j<BOARD_SIZE; j++){
 			boxW = __getBoardBox(state, WHITE_IDX, i, j);
 			boxB = __getBoardBox(state, BLACK_IDX, i, j);
-			printf("%5i", boxW - boxB);
+			printf("%4i", boxW - boxB);
 		}
 		printf("\n");
 	}
