@@ -9,7 +9,7 @@
 #define MC_EXPLORATION_CONST 0.5
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
-#define MAX_CONCURRENT_GAMES 4
+#define MAX_CONCURRENT_GAMES 5
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 20)
 
 
@@ -289,6 +289,7 @@ static void __expandChildren(Node *node){
 		child->reward = reward?-1:0;
 		child->firstChild = __initNodeChildren(child, actions);
 
+		// if this child returns to a state already present in its heritage, remove it
 		for(j=0; j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
 			if(__compareState(child->state, repeatStateHistory[j])){
 				if(previousChild==NULL){
@@ -297,7 +298,7 @@ static void __expandChildren(Node *node){
 				else{
 					previousChild->sibling = child->sibling;
 				}
-				__nodeFree(child);
+				__freeTree(child);
 				child = previousChild;
 				break;
 			}
