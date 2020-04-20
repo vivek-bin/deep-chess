@@ -37,6 +37,7 @@ static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int
 static Node* __initNodeChildren(Node *node, char actions[]);
 static void __test(PyObject *pyModel);
 static void __freeMem(PyObject *capsule);
+static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args);
 static PyObject* initTree(PyObject *self, PyObject *args);
 static PyObject* searchTree(PyObject *self, PyObject *args);
 static PyObject* generateGames(PyObject *self, PyObject *args);
@@ -575,7 +576,7 @@ static void __freeTree(Node *node){
 	__nodeFree(node);
 
 	if(common->count == 0){
-		printf("\nFreeing tree memory \n");
+		printf("Freeing tree memory \n");
 		for(child=(common->nodeBank); child!=NULL; child=nextChild){
 			nextChild = child->sibling;
 			free(child);
@@ -589,7 +590,7 @@ static void __freePyTree(PyObject *pyNode){
 	node = (Node*)PyCapsule_GetPointer(pyNode, NULL);
 	node->common->pyCounter--;
 	if(node->common->pyCounter==0){
-		printf("\nFreeing py tree \n");
+		printf("Freeing py tree \n");
 		while(node->parent != NULL){
 			node = node->parent;
 		}
@@ -665,27 +666,15 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 }
 
 static PyObject* initTree(PyObject *self, PyObject *args){
-	PyObject *pyState, *pyActions, *pyHistory, *pyPredictor, *predictionInput, *predictionOutput;
+	PyObject *pyState, *pyActions, *pyHistory, *pyPredictor;
 	Node *root;
 	NodeCommon *common;
-	int end, reward, training, i;
-	char actions[MAX_AVAILABLE_MOVES * ACTION_SIZE];
+	int end, reward, training;
 	char *dataPath;
-
-	char *stateHistories[1][BOARD_HISTORY];
-	char boardModelInput[MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
-	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
-	Node temp;
 
 	import_array();
 
 	PyArg_ParseTuple(args, "OOiiOOsi", &pyState, &pyActions, &end, &reward, &pyHistory, &pyPredictor, &dataPath, &training);
-	for(i=0; i<MAX_AVAILABLE_MOVES * ACTION_SIZE; i++){
-		actions[i] = -1;
-	}
-	for (i=0; i<PyTuple_Size(pyActions); i++){
-		__actionFromPy(PyTuple_GetItem(pyActions, i), &(actions[i*ACTION_SIZE]));
-	}
 
 	common = malloc(sizeof(NodeCommon));
 	
@@ -699,25 +688,62 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	strcpy(common->dataPath, dataPath);
 	common->nodeBank = NULL;
 
+	root = __reInitTreeFromNode(__nodeMalloc(common), self, args);
+
+	return PyCapsule_New((void*)root, NULL, __freePyTree);
+}
+
+static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
+	PyObject *pyState, *pyActions, *pyHistory, *pyPredictor, *predictionInput, *predictionOutput;
+	Node *root, *temp;
+	NodeCommon *common;
+	int end, reward, training, i;
+	char actions[MAX_AVAILABLE_MOVES * ACTION_SIZE];
+	char *dataPath;
+
+	char *stateHistories[1][BOARD_HISTORY];
+	char boardModelInput[MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
+	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
+
+	PyArg_ParseTuple(args, "OOiiOOsi", &pyState, &pyActions, &end, &reward, &pyHistory, &pyPredictor, &dataPath, &training);
+	for(i=0; i<MAX_AVAILABLE_MOVES * ACTION_SIZE; i++){
+		actions[i] = -1;
+	}
+	for (i=0; i<PyTuple_Size(pyActions); i++){
+		__actionFromPy(PyTuple_GetItem(pyActions, i), &(actions[i*ACTION_SIZE]));
+	}
+
+	common = node->common;
+
 	root = __nodeMalloc(common);
 	__stateFromPy(pyState, root->state);
 	root->end = end?1:0;
 	root->reward = reward?-1:0;
-	root->depth = PyList_Size(pyHistory);
+	root->depth = common->rootStateHistoryLen;
 	root->isTop = 1;
 	root->stateSetFlag = 1;
 	root->firstChild = __initNodeChildren(root, actions);
 	root->actionProbability = 1;
 
+	// free old node's tree entirely
+	while(node->parent != NULL){
+		node = node->parent;
+	}
+	__freeTree(node);
 
+	// set value and policy of root
 	__getStateHistory(root, BOARD_HISTORY, stateHistories[0]);
 	predictionInput = __prepareModelInput(1, stateHistories, boardModelInput, otherModelInput);
 	predictionOutput = PyObject_CallFunction(root->common->predictor, "O", predictionInput);
-	temp.firstChild = root;
-	__setChildrenValuePolicy(&temp, predictionOutput, 0);
+	temp = __nodeMalloc(common);
+	temp->firstChild = root;
+	__setChildrenValuePolicy(temp, predictionOutput, 0);
+	__nodeFree(temp);
 	Py_XDECREF(predictionInput);Py_XDECREF(predictionOutput);
 
-	return PyCapsule_New((void*)root, NULL, __freePyTree);
+	printf("New roots' node count: %li\n", root->common->count);
+
+	return root;
 }
 
 static PyObject* searchTree(PyObject *self, PyObject *args){
@@ -776,7 +802,6 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 		games++;
 	}
 
-	printf("----Start Time: %f \n", difftime(time(NULL), startTime));
 	while(1){
 		for(flag=1, i=0; i<MAX_CONCURRENT_GAMES; i++)
 			if(roots[i]->end == 0)
@@ -795,17 +820,15 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 				roots[i] = bests[i];
 				if(roots[i]->end){
 					__displayState(roots[i]->state);
-					printf("----Idx: %i         Move No: %i           Time: %f \n", i, roots[i]->depth, difftime(time(NULL), startTime));
+					printf("Game ended at        Idx: %i         Move No: %i           Time: %f \n", i, roots[i]->depth, difftime(time(NULL), startTime));
 				}
 			}
 			if(roots[i]->end && games < NUM_GENERATE_GAMES){
-				printf("----Start new game at Idx: %i \n", i);
-				Py_XDECREF(pyRoots[i]);
-
-				pyRoots[i] = initTree(self, args);
-				roots[i] = (Node*)PyCapsule_GetPointer(pyRoots[i], NULL);
-				roots[i]->common->gameIndex += idxes;
+				roots[i] = __reInitTreeFromNode(roots[i], self, args);
+				roots[i]->common->gameIndex = __lastGameIndex(roots[i]->common->dataPath) + 1 + idxes;
+				PyCapsule_SetPointer(pyRoots[i], (void*)roots[i]);
 				
+				printf("Start new game at    Idx: %i \n\n\n", i);
 				idxes++;
 				games++;
 			}
