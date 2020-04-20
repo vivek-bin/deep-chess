@@ -64,15 +64,12 @@ struct Node{
 	char state[STATE_SIZE];
 	char end;
 	int reward;
-	int numActions;
 	int depth;
 	char stateSetFlag;
 
 	long visits;
-	double sqrtVisits;
 	double stateTotalValue;
 	double stateValue;
-
 
 	char previousAction[ACTION_SIZE];
 	double actionProbability;
@@ -85,6 +82,7 @@ static Node* __nodeMalloc(NodeCommon *common){
 	Node *node;
 	long i;
 
+	// allocate more if bank is empty
 	if(common->nodeBank == NULL){
 		common->nodeBank = malloc(sizeof(Node));
 		common->nodeBank->sibling = NULL;
@@ -95,8 +93,28 @@ static Node* __nodeMalloc(NodeCommon *common){
 		}
 	}
 
+	// get new node
 	node = common->nodeBank;
 	common->nodeBank = node->sibling;
+	common->count++;
+
+	// initialize
+	node->common = common;
+	node->parent = NULL;
+	node->isTop = 0;
+	node->end = 0;
+	node->reward = 0;
+	node->depth = 0;
+	node->stateSetFlag = 0;
+
+	node->visits = 0;
+	node->stateTotalValue = 0;
+	node->stateValue = 0;
+
+	for(i=0; i<ACTION_SIZE; i++){node->previousAction[i] = -1;}
+	node->actionProbability = 0;
+	node->sibling = NULL;
+	node->firstChild = NULL;
 
 	return node;
 }
@@ -104,6 +122,7 @@ static Node* __nodeMalloc(NodeCommon *common){
 static void __nodeFree(Node *node){
 	node->sibling = node->common->nodeBank;
 	node->common->nodeBank = node;
+	node->common->count--;
 }
 
 static int __compareState(char state[], char state2[]){
@@ -268,8 +287,6 @@ static void __expandChildren(Node *node){
 		child->stateSetFlag = 1;
 		child->end = endIdx>=0?1:0;
 		child->reward = reward?-1:0;
-		for(j=0; j<MAX_AVAILABLE_MOVES && actions[j*ACTION_SIZE]>=0; j++);
-		child->numActions = j;
 		child->firstChild = __initNodeChildren(child, actions);
 
 		for(j=0; j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
@@ -281,7 +298,6 @@ static void __expandChildren(Node *node){
 					previousChild->sibling = child->sibling;
 				}
 				__nodeFree(child);
-				node->numActions--;
 				child = previousChild;
 				break;
 			}
@@ -332,7 +348,7 @@ static double __nodeValue(Node *node, int explore){
 	double value;
 	value = node->stateValue + node->stateTotalValue;
 	if(explore && node->parent!=NULL && node->common->training){
-		value += MC_EXPLORATION_CONST * (node->parent->sqrtVisits);
+		value += MC_EXPLORATION_CONST * sqrt((double)(node->parent->visits));
 	}
 	value *= (node->actionProbability);
 	return value/(node->visits + 1);
@@ -407,7 +423,6 @@ static void __backPropogate(Node *node){
 
 	for(decay=1; node!=NULL; decay*=flippingDecay, node=(node->parent)){
 		node->visits++;
-		node->sqrtVisits = sqrt((double)(node->visits));
 		node->stateTotalValue += leafValue * decay;
 	}
 }
@@ -556,7 +571,6 @@ static void __freeTree(Node *node){
 		nextChild = child->sibling;
 		__freeTree(child);
 	}
-	node->common->count--;
 	__nodeFree(node);
 
 	if(common->count == 0){
@@ -634,27 +648,8 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 		child = __nodeMalloc(node->common);
 
 		child->parent = node;
-		child->common = child->parent->common;
-		child->common->count++;
 		child->depth = child->parent->depth + 1;
-		child->isTop = 0;
-		child->stateSetFlag = 0;
-
-		child->end = 0;
-		child->reward = 0;
-		child->numActions = 0;
-
-		child->visits = 0;
-		child->sqrtVisits = 0;
-		child->stateTotalValue = 0;
-		child->stateValue = 0;
-		child->firstChild = NULL;
-
-
-		for(j=0; j<ACTION_SIZE; j++){
-			child->previousAction[j] = actions[i*ACTION_SIZE + j];
-		}
-		child->actionProbability = 0;
+		for(j=0; j<ACTION_SIZE; j++){child->previousAction[j] = actions[i*ACTION_SIZE + j];}
 
 		if(previousChild!=NULL){
 			previousChild->sibling = child;
@@ -663,9 +658,6 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 			firstChild = child;
 		}
 		previousChild = child;
-	}
-	if(previousChild!=NULL){
-		previousChild->sibling = NULL;
 	}
 
 	return firstChild;
@@ -684,7 +676,6 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
 	Node temp;
 
-
 	import_array();
 
 	PyArg_ParseTuple(args, "OOiiOOsi", &pyState, &pyActions, &end, &reward, &pyHistory, &pyPredictor, &dataPath, &training);
@@ -697,7 +688,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 
 	common = malloc(sizeof(NodeCommon));
 	
-	common->count = 1;
+	common->count = 0;
 	common->rootStateHistoryLen = PyList_Size(pyHistory);
 	__getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
 	common->predictor = pyPredictor;	Py_XINCREF(pyPredictor);
@@ -708,23 +699,13 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	common->nodeBank = NULL;
 
 	root = __nodeMalloc(common);
-	root->common = common;
 	__stateFromPy(pyState, root->state);
 	root->end = end?1:0;
 	root->reward = reward?-1:0;
-	root->numActions = PyTuple_Size(pyActions);
-	root->parent = NULL;
-	root->sibling = NULL;
 	root->depth = PyList_Size(pyHistory);
 	root->isTop = 1;
 	root->stateSetFlag = 1;
 	root->firstChild = __initNodeChildren(root, actions);
-
-	for(i=0; i<ACTION_SIZE; i++){root->previousAction[i] = -1;}
-	root->visits = 0;
-	root->sqrtVisits = 0;
-	root->stateTotalValue = 0;
-	root->stateValue = 0;
 	root->actionProbability = 1;
 
 
