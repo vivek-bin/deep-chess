@@ -11,6 +11,8 @@
 #define BOARD_HISTORY 4
 #define MAX_CONCURRENT_GAMES 5
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 20)
+#define BEST_CHILD_SCALE 2.0
+#define TRIM_DUPLICATES 1
 
 
 typedef struct NodeCommon NodeCommon;
@@ -291,7 +293,7 @@ static void __expandChildren(Node *node){
 		child->firstChild = __initNodeChildren(child, actions);
 
 		// if this child returns to a state already present in its heritage, remove it
-		for(j=0; j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
+		for(j=0; TRIM_DUPLICATES && j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
 			if(__compareState(child->state, repeatStateHistory[j])){
 				if(previousChild==NULL){
 					node->firstChild = child->sibling;
@@ -301,6 +303,11 @@ static void __expandChildren(Node *node){
 				}
 				__freeTree(child);
 				child = previousChild;
+
+				// if the repeat node was the only child, it will be an end node, with a draw
+				if(node->firstChild == NULL){
+					node->end = 1;
+				}
 				break;
 			}
 		}
@@ -334,8 +341,8 @@ static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int
 	long idx;
 	int b;
 
-	pyValues = PyList_GetItem(predictionOutput, 0);
-	pyPolicies = PyList_GetItem(predictionOutput, 1);
+	pyValues = (PyArrayObject*) PyList_GetItem(predictionOutput, 0);
+	pyPolicies = (PyArrayObject*) PyList_GetItem(predictionOutput, 1);
 
 	for(b=0, child=(node->firstChild); child!=NULL; child=(child->sibling), b++){
 		child->stateValue = *((float*)PyArray_GETPTR2(pyValues, batchOffset+b, 0));
@@ -357,13 +364,12 @@ static double __nodeValue(Node *node, int explore){
 }
 
 static Node* __bestChild(Node *node){
-	double totalValue, minimumValue;
+	double totalValue, minimumValue, childRnd;
 	Node *child;
-	double doubleR;
+	int count, i, bestIdx;
 
 	double values[MAX_AVAILABLE_MOVES];
 	Node *children[MAX_AVAILABLE_MOVES];
-	int count, i, bestIdx;
 
 	for(count=0, child=(node->firstChild); count<MAX_AVAILABLE_MOVES && child!=NULL; count++, child=(child->sibling)){
 		values[count] = __nodeValue(child, 1);
@@ -378,21 +384,23 @@ static Node* __bestChild(Node *node){
 	}
 	
 	if(node->common->training){
+		// find minimum value of children
 		for(minimumValue=999999999, i=0; i<count; i++){
 			if(values[i]<minimumValue){
 				minimumValue = values[i];
 			}
 		}
 
+		// move to range [0, max) and scale to weigh better values more
 		for(totalValue=0, i=0; i<count; i++){
-			values[i] = pow(values[i]-minimumValue, 2) + 1e-3;
+			values[i] = pow(values[i] - minimumValue + 1e-9, BEST_CHILD_SCALE);
 			totalValue += values[i];
 		}
-		doubleR = totalValue * (((double)(rand()))/((double)RAND_MAX));
+		childRnd = totalValue * (((double)(rand()))/((double)RAND_MAX));
 
-		for(bestIdx=-1, totalValue=0, i=0; i<count; i++){
+		for(bestIdx=count-1, totalValue=0, i=0; i<count; i++){
 			totalValue += values[i];
-			if(totalValue>doubleR){
+			if(totalValue > childRnd){
 				bestIdx = i;
 				break;
 			}
@@ -447,6 +455,7 @@ static void __runSimulations(Node *roots[], int numConc){
 		}
 		else{
 			leafs[i] = __getLeaf(roots[i]);
+			__expandChildren(leafs[i]);
 		}
 	}
 
@@ -456,7 +465,6 @@ static void __runSimulations(Node *roots[], int numConc){
 			for(batchSizes[i]=0, child=(leafs[i]->firstChild); batchSizes[i]<MAX_AVAILABLE_MOVES && child!=NULL; batchSizes[i]++, child=(child->sibling));
 
 			// fetch histories
-			__expandChildren(leafs[i]);
 			__setChildrenHistories(leafs[i], &(stateHistories[totalBatchSize]));
 
 			batchOffset[i] = totalBatchSize;
@@ -893,38 +901,26 @@ static PyObject* prepareModelInput(PyObject *self, PyObject *args){
 	return __prepareModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
 }
 
-static void __test(PyObject *pyModel){
-	PyObject *predictionOutput;
-	PyObject *npBoard, *npOther;
-	npy_intp dims[4];
-	int i;
+static void __test(PyObject *predictionOutput){
+	PyArrayObject *pyValues, *pyPolicies;
+	long idx, b;
 
-	char boardModelInput[MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
-	char otherModelInput[MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
-
-
-	for(i=0;i<MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE;i++)boardModelInput[i]=0;
-	for(i=0;i<MAX_AVAILABLE_MOVES * 3*BOARD_SIZE*BOARD_SIZE;i++)otherModelInput[i]=0;
-	
-	dims[0] = 2;	dims[1] = BOARD_HISTORY*2;	dims[2] = BOARD_SIZE;	dims[3] = BOARD_SIZE;
-	npBoard = PyArray_SimpleNewFromData(4, dims, NPY_INT8, boardModelInput);
-	dims[1] = 3;
-	npOther = PyArray_SimpleNewFromData(4, dims, NPY_INT8, otherModelInput);
-
-	printf("\n-----------------in func2----------------- \n");
-	
-	predictionOutput = PyObject_CallMethod(pyModel, "predict", "(OO)i", npBoard, npOther, MAX_AVAILABLE_MOVES);
-	PyErr_Print();
-	printf("\n-----------------in func30----------------- %s \n", PyBytes_AsString(PyUnicode_AsUTF8String((PyObject_Str(PyObject_Type(predictionOutput))))));
-	printf("\n-----------------in func31----------------- %s \n", PyBytes_AsString(PyUnicode_AsUTF8String((PyObject_Str(PyObject_GetAttrString(PyList_GetItem(predictionOutput, 1), "shape"))))));
+	pyValues = (PyArrayObject*) PyList_GetItem(predictionOutput, 0);
+	pyPolicies = (PyArrayObject*) PyList_GetItem(predictionOutput, 1);
+	printf("jjgjggj %li %li %li %li\n", PyArray_DIM(pyValues, 0), PyArray_DIM(pyValues, 1), PyArray_DIM(pyPolicies, 0), PyArray_DIM(pyPolicies, 1));
+	for(b=0; b<5; b++){
+		printf("\n\n batch:%li \n", b);
+		printf("     v: %f \n", *((float*)PyArray_GETPTR2(pyValues, b, 0)));
+		for(idx=0; idx<3; idx+=1){
+			printf("     p%li: %f \n", idx, *((float*)PyArray_GETPTR2(pyPolicies, b, idx)));
+		}
+	}
 }
 
 static PyObject* test(PyObject *self, PyObject *args){
-	PyObject *pyModel;
 	import_array();
 
-	pyModel = PyTuple_GetItem(args, 0);
-	__test(pyModel);
+	__test(PyTuple_GetItem(args, 0));
 	return PyLong_FromLong(0);
 }
 

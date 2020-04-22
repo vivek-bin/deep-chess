@@ -355,11 +355,21 @@ def nodeClearingDebug():
 		displayBatchPyC(playIps[-1], i, 0)
 
 
-	
+def checkNumpyAccessInC():
+	import csearch as SE
+	import numpy as np
 
+	b = 5
+	i = 3
+	v = np.reshape(np.arange(0,b *2, 2, dtype="float32"), (b,1))
+	p = np.reshape(np.arange(0,b*i *4, 4, dtype="float32"), (b, i))
 
-	
+	SE.test([v, p])
+
+	print(v)
+	print(p)
+
 
 print(CONST.LAPSED_TIME())
-nodeClearingDebug()
+checkNumpyAccessInC()
 print(CONST.LAPSED_TIME())
