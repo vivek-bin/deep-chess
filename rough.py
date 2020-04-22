@@ -369,7 +369,29 @@ def checkNumpyAccessInC():
 	print(v)
 	print(p)
 
+def generatedDataStats():
+	import json
+	import cengine as EG
+	import statistics
+
+	historyFiles = os.listdir(CONST.DATA)
+	histories = []
+
+	for fileName in historyFiles:
+		with open(CONST.DATA + fileName, "r") as file:
+			history = json.load(file)
+		history["ACTIONS_POLICY"] = {int(k):v for k, v in history["ACTIONS_POLICY"].items()}
+		history["SEARCHED_POLICY"] = {int(k):v for k, v in history["SEARCHED_POLICY"].items()}
+		histories.append(history)
+
+	for field in ["END", "REWARD", "VALUE", "EXPLORATORY_VALUE"]:
+		print("\n\n", field)
+		print("min   :", min(histories, key=lambda x: x[field]))
+		print("max   :", max(histories, key=lambda x: x[field]))
+		print("mean  :", statistics.mean([x[field] for x in histories]))
+		print("median:", statistics.median([x[field] for x in histories]))
+
 
 print(CONST.LAPSED_TIME())
-checkNumpyAccessInC()
+generatedDataStats()
 print(CONST.LAPSED_TIME())

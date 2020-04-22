@@ -4,14 +4,14 @@
 #include <dirent.h>
 #include <math.h>
 #define MEMORY_BLOCK_SIZE (1<<19)
-#define NUM_SIMULATIONS 600
+#define NUM_SIMULATIONS 800
 #define BACKPROP_DECAY 0.98
-#define MC_EXPLORATION_CONST 0.5
+#define MC_EXPLORATION_CONST 1
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
 #define MAX_CONCURRENT_GAMES 5
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 20)
-#define BEST_CHILD_SCALE 2.0
+#define BEST_CHILD_SCALE 1.0
 #define TRIM_DUPLICATES 1
 
 
@@ -356,10 +356,9 @@ static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int
 static double __nodeValue(Node *node, int explore){
 	double value;
 	value = node->stateValue + node->stateTotalValue;
-	if(explore && node->parent!=NULL && node->common->training){
-		value += MC_EXPLORATION_CONST * sqrt((double)(node->parent->visits));
+	if(explore && node->parent!=NULL){
+		value += MC_EXPLORATION_CONST * (node->actionProbability) * sqrt((double)(node->parent->visits));
 	}
-	value *= (node->actionProbability);
 	return value/(node->visits + 1);
 }
 
@@ -373,7 +372,7 @@ static Node* __bestChild(Node *node){
 
 	for(count=0, child=(node->firstChild); count<MAX_AVAILABLE_MOVES && child!=NULL; count++, child=(child->sibling)){
 		values[count] = __nodeValue(child, 1);
-		children[count] = child;//printf("\n          %f  %f %x", values[count], children[count]->stateValue, children[count]);
+		children[count] = child;
 	}
 
 	// if we have a move which ends the game with a win(!draw), we always take it
@@ -531,14 +530,14 @@ static void __saveNodeInfo(Node *node){
 
 	fprintf(oFile, "  \"ACTIONS_POLICY\" : { \n");
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		fprintf(oFile, "    \"%i\" : %f ", __actionIndex(child->previousAction), child->actionProbability);
+		fprintf(oFile, "    \"%i\" : %.10f ", __actionIndex(child->previousAction), child->actionProbability);
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
 	fprintf(oFile, "                     }, \n");
 	fprintf(oFile, "  \"SEARCHED_POLICY\" : { \n");
 	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		fprintf(oFile, "    \"%i\" : %f ", __actionIndex(child->previousAction), ((float)(child->visits)/(float)(node->visits)));
+		fprintf(oFile, "    \"%i\" : %.10f ", __actionIndex(child->previousAction), ((float)(child->visits)/(float)(node->visits)));
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
@@ -546,9 +545,9 @@ static void __saveNodeInfo(Node *node){
 
 	fprintf(oFile, "  \"END\" : %i, \n", node->end);
 	fprintf(oFile, "  \"REWARD\" : %i, \n", node->reward);
-	fprintf(oFile, "  \"STATE_VALUE\" : %f, \n", node->stateValue);
-	fprintf(oFile, "  \"VALUE\" : %f, \n", __nodeValue(node, 0));
-	fprintf(oFile, "  \"EXPLORATORY_VALUE\" : %f, \n", __nodeValue(node, 1));
+	fprintf(oFile, "  \"STATE_VALUE\" : %.10f, \n", node->stateValue);
+	fprintf(oFile, "  \"VALUE\" : %.10f, \n", __nodeValue(node, 0));
+	fprintf(oFile, "  \"EXPLORATORY_VALUE\" : %.10f, \n", __nodeValue(node, 1));
 	fprintf(oFile, "  \"TRAINING\" : %i, \n", node->common->training);
 
 	fprintf(oFile, "  \"GAME_NUMBER\" : %li, \n", node->common->gameIndex);
