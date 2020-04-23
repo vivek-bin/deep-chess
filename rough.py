@@ -373,6 +373,7 @@ def generatedDataStats():
 	import json
 	import cengine as EG
 	import statistics
+	import os
 
 	historyFiles = os.listdir(CONST.DATA)
 	histories = []
@@ -384,12 +385,16 @@ def generatedDataStats():
 		history["SEARCHED_POLICY"] = {int(k):v for k, v in history["SEARCHED_POLICY"].items()}
 		histories.append(history)
 
+	vals = {}
 	for field in ["END", "REWARD", "VALUE", "EXPLORATORY_VALUE"]:
-		print("\n\n", field)
-		print("min   :", min(histories, key=lambda x: x[field]))
-		print("max   :", max(histories, key=lambda x: x[field]))
-		print("mean  :", statistics.mean([x[field] for x in histories]))
-		print("median:", statistics.median([x[field] for x in histories]))
+		vals[field] = [x[field] for x in histories]
+	vals["EXPLORE ADDED VALUE"] = [x["EXPLORATORY_VALUE"]-x["VALUE"] for x in histories]
+	vals["SEARCHED_POLICY"] = [x for h in histories for w, x in h["SEARCHED_POLICY"].items()]
+	vals["ACTIONS_POLICY"] = [x for h in histories for w, x in h["ACTIONS_POLICY"].items()]
+
+	for key in sorted(vals.keys()):
+		val = vals[key]
+		print("{:25} min: {: 04.9f}    max: {: 04.9f}    mean: {: 04.9f}    median: {: 04.9f}".format(key, min(val), max(val), statistics.mean(val), statistics.median(val)))
 
 
 print(CONST.LAPSED_TIME())
