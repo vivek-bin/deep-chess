@@ -9,7 +9,7 @@
 #define MC_EXPLORATION_CONST 1
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
-#define MAX_CONCURRENT_GAMES 12
+#define MAX_CONCURRENT_GAMES 14
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 20)
 #define BEST_CHILD_SCALE 1.0
 #define TRIM_DUPLICATES 1
@@ -115,7 +115,7 @@ static Node* __nodeMalloc(NodeCommon *common){
 	node->stateValue = 0;
 
 	for(i=0; i<ACTION_SIZE; i++){node->previousAction[i] = -1;}
-	node->actionProbability = 0;
+	node->actionProbability = 1;
 	node->sibling = NULL;
 	node->firstChild = NULL;
 
@@ -293,7 +293,7 @@ static void __expandChildren(Node *node){
 		child->firstChild = __initNodeChildren(child, actions);
 
 		// if this child returns to a state already present in its heritage, remove it
-		for(j=0; TRIM_DUPLICATES && j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
+		for(j=0; TRIM_DUPLICATES && node->common->training && j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
 			if(__compareState(child->state, repeatStateHistory[j])){
 				if(previousChild==NULL){
 					node->firstChild = child->sibling;
@@ -340,15 +340,20 @@ static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int
 	Node *child, *grandChild;
 	long idx;
 	int b;
+	double policyTotal;
 
 	pyValues = (PyArrayObject*) PyList_GetItem(predictionOutput, 0);
 	pyPolicies = (PyArrayObject*) PyList_GetItem(predictionOutput, 1);
 
 	for(b=0, child=(node->firstChild); child!=NULL; child=(child->sibling), b++){
 		child->stateValue = *((float*)PyArray_GETPTR2(pyValues, batchOffset+b, 0));
-		for(grandChild=(child->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
+		for(policyTotal=0, grandChild=(child->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
 			idx = __actionIndex(grandChild->previousAction);
 			grandChild->actionProbability = *((float*)PyArray_GETPTR2(pyPolicies, batchOffset+b, idx));
+			policyTotal += grandChild->actionProbability;
+		}
+		for(grandChild=(child->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
+			grandChild->actionProbability /= policyTotal;
 		}
 	}
 }
@@ -371,7 +376,7 @@ static Node* __bestChild(Node *node){
 	Node *children[MAX_AVAILABLE_MOVES];
 
 	for(count=0, child=(node->firstChild); count<MAX_AVAILABLE_MOVES && child!=NULL; count++, child=(child->sibling)){
-		values[count] = __nodeValue(child, 1);
+		values[count] = __nodeValue(child, 1) * -1;
 		children[count] = child;
 	}
 
@@ -730,7 +735,6 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 	root->isTop = 1;
 	root->stateSetFlag = 1;
 	root->firstChild = __initNodeChildren(root, actions);
-	root->actionProbability = 1;
 
 	// free old node's tree entirely
 	while(node->parent != NULL){
