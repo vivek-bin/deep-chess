@@ -3,23 +3,27 @@
 #include <numpy/arrayobject.h>
 #include <dirent.h>
 #include <math.h>
-#define MEMORY_BLOCK_SIZE (1<<19)
+#define NODE_BANK_LOT_SIZE (50000)
+#define ACTION_BANK_LOT_SIZE (500000)
 #define NUM_SIMULATIONS 800
 #define BACKPROP_DECAY 0.98
 #define MC_EXPLORATION_CONST 1
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
-#define MAX_CONCURRENT_GAMES 14
+#define MAX_CONCURRENT_GAMES 24
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 20)
 #define BEST_CHILD_SCALE 1.0
 #define TRIM_DUPLICATES 1
+#define GENERATE_WITH_MODEL 1
 
 
 typedef struct NodeCommon NodeCommon;
 typedef struct Node Node;
+typedef struct Action Action;
 static Node* __nodeMalloc(NodeCommon *common);
 static void __nodeFree(Node *node);
-static int __compareState(char state[], char state2[]);
+static Action* __actionMalloc(NodeCommon *common);
+static void __actionFree(Action *action);
 static void __getStateHistory(Node *node, long limit, char **stateHistory);
 static PyObject* __prepareModelInput(int batchSize, char *stateHistories[][BOARD_HISTORY], char *boardModelInput, char *otherModelInput);
 static void __expandChildren(Node *node);
@@ -28,15 +32,16 @@ static double __nodeValue(Node *node, int explore);
 static Node* __bestChild(Node *node);
 static Node* __getLeaf(Node *node);
 static void __backPropogate(Node *node);
-static void __runSimulations(Node *roots[], int numConc);
+static void __runSimulations(Node *roots[], int numConc, int queryModel);
 static void __saveNodeInfo(Node *node);
 static void __removeOtherChildren(Node *node, Node *best);
+static void __freeActionTree(Action *action);
 static void __freeTree(Node *node);
 static void __freePyTree(PyObject *pyNode);
 static int __lastGameIndex(char *dataPath);
 static void __getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistory[][STATE_SIZE]);
 static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int batchOffset);
-static Node* __initNodeChildren(Node *node, char actions[]);
+static Action* __initNodeChildren(Node *node, char actions[]);
 static void __test(PyObject *pyModel);
 static void __freeMem(PyObject *capsule);
 static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args);
@@ -48,7 +53,8 @@ static PyObject* test(PyObject *self, PyObject *args);
 
 
 struct NodeCommon{
-	long count;
+	long nodeCount;
+	long actionCount;
 	char training;
 	PyObject *predictor;
 	long gameIndex;
@@ -57,27 +63,34 @@ struct NodeCommon{
 	int rootStateHistoryLen;
 	int pyCounter;
 	Node *nodeBank;
+	Action *actionBank;
 };
 
 struct Node{
 	NodeCommon *common;
 
-	Node *parent;
-	char isTop;
 	char state[STATE_SIZE];
 	char end;
 	int reward;
 	int depth;
-	char stateSetFlag;
 
 	long visits;
+	double sqrtVisits;
 	double stateTotalValue;
 	double stateValue;
 
-	char previousAction[ACTION_SIZE];
+	Action *previousAction;
+	Action *firstAction;
+
+	Node *next;			// for node bank link
+};
+
+struct Action{
+	Node *parent;
+	char action[ACTION_SIZE];
 	double actionProbability;
-	Node *firstChild;
-	Node *sibling;
+	Node *node;
+	Action *sibling;
 };
 
 
@@ -88,54 +101,77 @@ static Node* __nodeMalloc(NodeCommon *common){
 	// allocate more if bank is empty
 	if(common->nodeBank == NULL){
 		common->nodeBank = malloc(sizeof(Node));
-		common->nodeBank->sibling = NULL;
-		for(i=0; i<MEMORY_BLOCK_SIZE; i++){
+		common->nodeBank->next = NULL;
+		for(i=0; i<NODE_BANK_LOT_SIZE; i++){
 			node = malloc(sizeof(Node));
-			node->sibling = common->nodeBank;
+			node->next = common->nodeBank;
 			common->nodeBank = node;
 		}
 	}
 
 	// get new node
 	node = common->nodeBank;
-	common->nodeBank = node->sibling;
-	common->count++;
+	common->nodeBank = node->next;
+	common->nodeCount++;
 
 	// initialize
 	node->common = common;
-	node->parent = NULL;
-	node->isTop = 0;
+	node->next = NULL;
+	node->previousAction = NULL;
+	node->firstAction = NULL;
 	node->end = 0;
 	node->reward = 0;
 	node->depth = 0;
-	node->stateSetFlag = 0;
 
 	node->visits = 0;
+	node->sqrtVisits = 0;
 	node->stateTotalValue = 0;
 	node->stateValue = 0;
-
-	for(i=0; i<ACTION_SIZE; i++){node->previousAction[i] = -1;}
-	node->actionProbability = 1;
-	node->sibling = NULL;
-	node->firstChild = NULL;
 
 	return node;
 }
 
 static void __nodeFree(Node *node){
-	node->sibling = node->common->nodeBank;
+	node->next = node->common->nodeBank;
 	node->common->nodeBank = node;
-	node->common->count--;
+	node->common->nodeCount--;
 }
 
-static int __compareState(char state[], char state2[]){
-	int i;
-	for(i=0; i<STATE_SIZE; i++){
-		if(state2[i] != state[i]){
-			return 0;
+
+static Action* __actionMalloc(NodeCommon *common){
+	Action *action;
+	long i;
+
+	// allocate more if bank is empty
+	if(common->actionBank == NULL){
+		common->actionBank = malloc(sizeof(Action));
+		common->actionBank->sibling = NULL;
+		for(i=0; i<ACTION_BANK_LOT_SIZE; i++){
+			action = malloc(sizeof(Action));
+			action->sibling = common->actionBank;
+			common->actionBank = action;
 		}
 	}
-	return 1;
+
+	// get new action
+	action = common->actionBank;
+	common->actionBank = action->sibling;
+	common->actionCount++;
+
+	// initialize
+	action->parent = NULL;
+	for(i=0; i<ACTION_SIZE; i++){action->action[i] = -1;}
+	action->actionProbability = 1;
+	action->sibling = NULL;
+	action->node = NULL;
+
+	return action;
+}
+
+static void __actionFree(Action *action){
+	action->sibling = action->parent->common->actionBank;
+	action->parent->common->actionBank = action;
+	action->parent->common->actionCount--;
 }
 
 static void __getStateHistory(Node *node, long limit, char *stateHistory[]){
@@ -146,7 +182,7 @@ static void __getStateHistory(Node *node, long limit, char *stateHistory[]){
 	i = limit - 1;
 	while(i>=0 && node!=NULL){
 		stateHistory[i--] = node->state;
-		if(node->parent == NULL && node->isTop){
+		if(node->previousAction == NULL){
 			if(node->common->rootStateHistory != NULL){
 				for(j = node->common->rootStateHistoryLen - 1; j>=0 && i>=0; j--){
 					stateHistory[i--] = node->common->rootStateHistory[j];
@@ -154,7 +190,7 @@ static void __getStateHistory(Node *node, long limit, char *stateHistory[]){
 			}
 			break;
 		}
-		node = node->parent;
+		node = node->previousAction->parent;
 	}
 	for(i=0, j=0; i<limit; i++){
 		if(stateHistory[i] == NULL){
@@ -274,7 +310,7 @@ static PyObject* __prepareModelInput(int batchSize, char *stateHistories[][BOARD
 
 static void __expandChildren(Node *node){
 	char actions[ACTION_SIZE*MAX_AVAILABLE_MOVES];
-	Node *child, *previousChild, *nextChild;
+	Action *child, *previousChild, *nextChild;
 
 	char *repeatStateHistory[STATE_HISTORY_LEN];
 	int endIdx, reward;
@@ -282,30 +318,34 @@ static void __expandChildren(Node *node){
 
 	__getStateHistory(node, STATE_HISTORY_LEN, repeatStateHistory);
 	
-	for(previousChild=NULL, child=(node->firstChild); child!=NULL; previousChild=child, child=nextChild){
+	for(previousChild=NULL, child=(node->firstAction); child!=NULL; previousChild=child, child=nextChild){
 		nextChild = (child->sibling);
-		__copyState(node->state, child->state);
-		__play(child->state, child->previousAction, child->depth, actions, &endIdx, &reward);
+		child->node = __nodeMalloc(node->common);
+
+		child->node->previousAction = child;
+		child->node->depth = node->depth + 1;
+		__copyState(node->state, child->node->state);
+
+		__play(child->node->state, child->action, child->node->depth, actions, &endIdx, &reward);
 		
-		child->stateSetFlag = 1;
-		child->end = endIdx>=0?1:0;
-		child->reward = reward?-1:0;
-		child->firstChild = __initNodeChildren(child, actions);
+		child->node->end = endIdx>=0?1:0;
+		child->node->reward = reward?-1:0;
+		child->node->firstAction = __initNodeChildren(child->node, actions);
 
 		// if this child returns to a state already present in its heritage, remove it
 		for(j=0; TRIM_DUPLICATES && node->common->training && j<STATE_HISTORY_LEN && repeatStateHistory[j]!=NULL; j++){
-			if(__compareState(child->state, repeatStateHistory[j])){
+			if(__compareState(child->node->state, repeatStateHistory[j])){
 				if(previousChild==NULL){
-					node->firstChild = child->sibling;
+					node->firstAction = nextChild;
 				}
 				else{
-					previousChild->sibling = child->sibling;
+					previousChild->sibling = nextChild;
 				}
-				__freeTree(child);
+				__freeActionTree(child);
 				child = previousChild;
 
 				// if the repeat node was the only child, it will be an end node, with a draw
-				if(node->firstChild == NULL){
+				if(node->firstAction == NULL){
 					node->end = 1;
 				}
 				break;
@@ -315,7 +355,7 @@ static void __expandChildren(Node *node){
 }
 
 static void __setChildrenHistories(Node *node, char *stateHistories[][BOARD_HISTORY]){
-	Node *child;
+	Action *child;
 	char *nodeStateHistory[BOARD_HISTORY];
 	int b, i, j;
 
@@ -327,17 +367,17 @@ static void __setChildrenHistories(Node *node, char *stateHistories[][BOARD_HIST
 
 	__getStateHistory(node, BOARD_HISTORY, nodeStateHistory);
 
-	for(b=0, child=(node->firstChild); child!=NULL; child=(child->sibling)){
+	for(b=0, child=(node->firstAction); child!=NULL; child=(child->sibling)){
 		for(i=0; i<BOARD_HISTORY-1 && nodeStateHistory[i+1]!=NULL; i++){
 			stateHistories[b][i] = nodeStateHistory[i+1];
 		}
-		stateHistories[b++][i] = child->state;
+		stateHistories[b++][i] = child->node->state;
 	}
 }
 
 static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int batchOffset){
 	PyArrayObject *pyValues, *pyPolicies;
-	Node *child, *grandChild;
+	Action *child, *grandChild;
 	long idx;
 	int b;
 	double policyTotal;
@@ -345,14 +385,14 @@ static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int
 	pyValues = (PyArrayObject*) PyList_GetItem(predictionOutput, 0);
 	pyPolicies = (PyArrayObject*) PyList_GetItem(predictionOutput, 1);
 
-	for(b=0, child=(node->firstChild); child!=NULL; child=(child->sibling), b++){
-		child->stateValue = *((float*)PyArray_GETPTR2(pyValues, batchOffset+b, 0));
-		for(policyTotal=0, grandChild=(child->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
-			idx = __actionIndex(grandChild->previousAction);
+	for(b=0, child=(node->firstAction); child!=NULL; child=(child->sibling), b++){
+		child->node->stateValue = *((float*)PyArray_GETPTR2(pyValues, batchOffset+b, 0));
+		for(policyTotal=0, grandChild=(child->node->firstAction); grandChild!=NULL; grandChild=(grandChild->sibling)){
+			idx = __actionIndex(grandChild->action);
 			grandChild->actionProbability = *((float*)PyArray_GETPTR2(pyPolicies, batchOffset+b, idx));
 			policyTotal += grandChild->actionProbability;
 		}
-		for(grandChild=(child->firstChild); grandChild!=NULL; grandChild=(grandChild->sibling)){
+		for(grandChild=(child->node->firstAction); grandChild!=NULL; grandChild=(grandChild->sibling)){
 			grandChild->actionProbability /= policyTotal;
 		}
 	}
@@ -361,23 +401,23 @@ static void __setChildrenValuePolicy(Node *node, PyObject *predictionOutput, int
 static double __nodeValue(Node *node, int explore){
 	double value;
 	value = node->stateValue + node->stateTotalValue;
-	if(explore && node->parent!=NULL){
-		value += MC_EXPLORATION_CONST * (node->actionProbability) * sqrt((double)(node->parent->visits));
+	if(explore && node->previousAction!=NULL){
+		value -= MC_EXPLORATION_CONST * (node->previousAction->actionProbability) * (node->previousAction->parent->sqrtVisits);
 	}
 	return value/(node->visits + 1);
 }
 
 static Node* __bestChild(Node *node){
 	double totalValue, minimumValue, childRnd;
-	Node *child;
+	Action *child;
 	int count, i, bestIdx;
 
 	double values[MAX_AVAILABLE_MOVES];
 	Node *children[MAX_AVAILABLE_MOVES];
 
-	for(count=0, child=(node->firstChild); count<MAX_AVAILABLE_MOVES && child!=NULL; count++, child=(child->sibling)){
-		values[count] = __nodeValue(child, 1) * -1;
-		children[count] = child;
+	for(count=0, child=(node->firstAction); count<MAX_AVAILABLE_MOVES && child!=NULL; count++, child=(child->sibling)){
+		values[count] = __nodeValue(child->node, 1) * -1;
+		children[count] = child->node;
 	}
 
 	// if we have a move which ends the game with a win(!draw), we always take it
@@ -397,10 +437,13 @@ static Node* __bestChild(Node *node){
 
 		// move to range [0, max) and scale to weigh better values more
 		for(totalValue=0, i=0; i<count; i++){
-			values[i] = pow(values[i] - minimumValue + 1e-9, BEST_CHILD_SCALE);
+			values[i] = pow(values[i] - minimumValue + 1e-5, BEST_CHILD_SCALE);
 			totalValue += values[i];
 		}
-		childRnd = totalValue * (((double)(rand()))/((double)RAND_MAX));
+		for(i=0; i<count; i++){
+			values[i] /= totalValue;
+		}
+		childRnd = ((double)(rand()))/((double)RAND_MAX);
 
 		for(bestIdx=count-1, totalValue=0, i=0; i<count; i++){
 			totalValue += values[i];
@@ -422,7 +465,7 @@ static Node* __bestChild(Node *node){
 }
 
 static Node* __getLeaf(Node *node){
-	while(node->end==0 && node->firstChild->stateSetFlag){
+	while(node->end==0 && node->firstAction->node!=NULL){
 		node = __bestChild(node);
 	}
 
@@ -435,17 +478,22 @@ static void __backPropogate(Node *node){
 	flippingDecay = BACKPROP_DECAY * -1;
 	leafValue = node->end?node->reward:node->stateValue;
 
-	for(decay=1; node!=NULL; decay*=flippingDecay, node=(node->parent)){
+	for(decay=1; node!=NULL; decay*=flippingDecay, node=(node->previousAction->parent)){
 		node->visits++;
+		node->sqrtVisits = sqrt(((double)(node->visits)));
 		node->stateTotalValue += leafValue * decay;
+		if(node->previousAction == NULL){
+			break;
+		}
 	}
 }
 
-static void __runSimulations(Node *roots[], int numConc){
+static void __runSimulations(Node *roots[], int numConc, int queryModel){
 	char *stateHistories[MAX_CONCURRENT_GAMES * MAX_AVAILABLE_MOVES][BOARD_HISTORY];
 	char boardModelInput[MAX_CONCURRENT_GAMES*MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
 	char otherModelInput[MAX_CONCURRENT_GAMES*MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
-	Node *leafs[MAX_CONCURRENT_GAMES], *child;
+	Node *leafs[MAX_CONCURRENT_GAMES];
+	Action *child;
 	PyObject *predictionInput, *predictionOutput;
 	int batchSizes[MAX_CONCURRENT_GAMES], batchOffset[MAX_CONCURRENT_GAMES], totalBatchSize;
 	int i;
@@ -463,10 +511,10 @@ static void __runSimulations(Node *roots[], int numConc){
 		}
 	}
 
-	for(i=0; i<numConc; i++){
+	for(i=0; queryModel && i<numConc; i++){
 		if(leafs[i] != NULL && leafs[i]->end == 0){
 			//find batch sizes
-			for(batchSizes[i]=0, child=(leafs[i]->firstChild); batchSizes[i]<MAX_AVAILABLE_MOVES && child!=NULL; batchSizes[i]++, child=(child->sibling));
+			for(batchSizes[i]=0, child=(leafs[i]->firstAction); batchSizes[i]<MAX_AVAILABLE_MOVES && child!=NULL; batchSizes[i]++, child=(child->sibling));
 
 			// fetch histories
 			__setChildrenHistories(leafs[i], &(stateHistories[totalBatchSize]));
@@ -475,7 +523,7 @@ static void __runSimulations(Node *roots[], int numConc){
 			totalBatchSize += batchSizes[i];
 		}
 	}
-	if(totalBatchSize > 0){
+	if(queryModel && totalBatchSize > 0){
 		//prepare model input as numpy
 		predictionInput = __prepareModelInput(totalBatchSize, stateHistories, boardModelInput, otherModelInput);
 		if(predictionInput==NULL){printf(" ---- prediction input creation error \n");PyErr_Print();}
@@ -510,7 +558,7 @@ static void __runSimulations(Node *roots[], int numConc){
 
 static void __saveNodeInfo(Node *node){
 	FILE * oFile;
-	Node *child;
+	Action *child;
 	char stateIdx[STATE_SIZE+1];
 	char fileName[2650];
 	char *stateHistory[STATE_HISTORY_LEN];
@@ -534,15 +582,15 @@ static void __saveNodeInfo(Node *node){
 	fprintf(oFile, "                    ], \n");
 
 	fprintf(oFile, "  \"ACTIONS_POLICY\" : { \n");
-	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		fprintf(oFile, "    \"%i\" : %.10f ", __actionIndex(child->previousAction), child->actionProbability);
+	for(child=(node->firstAction); child!=NULL; child=(child->sibling)){
+		fprintf(oFile, "    \"%i\" : %.10f ", __actionIndex(child->action), child->actionProbability);
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
 	fprintf(oFile, "                     }, \n");
 	fprintf(oFile, "  \"SEARCHED_POLICY\" : { \n");
-	for(child=(node->firstChild); child!=NULL; child=(child->sibling)){
-		fprintf(oFile, "    \"%i\" : %.10f ", __actionIndex(child->previousAction), ((float)(child->visits)/(float)(node->visits)));
+	for(child=(node->firstAction); child!=NULL; child=(child->sibling)){
+		fprintf(oFile, "    \"%i\" : %.10f ", __actionIndex(child->action), ((float)(child->node->visits)/(float)(node->visits)));
 		if(child->sibling != NULL){	fprintf(oFile, ",");}
 		fprintf(oFile, "\n");
 	}
@@ -563,33 +611,53 @@ static void __saveNodeInfo(Node *node){
 }
 
 static void __removeOtherChildren(Node *node, Node *best){
-	Node *child, *nextChild;
+	Action *child, *nextChild;
 
-	for(child=(node->firstChild); child!=NULL; child=nextChild){
+	for(child=(node->firstAction); child!=NULL; child=nextChild){
 		nextChild = child->sibling;
-		if(child!=best){
-			__freeTree(child);
+		if(child->node != best){
+			__freeActionTree(child);
 		}
 	}
-	best->sibling = NULL;
-	node->firstChild = best;
+	best->previousAction->sibling = NULL;
+	node->firstAction = best->previousAction;
+}
+
+static void __freeActionTree(Action *action){
+	Node *temp;
+
+	temp = __nodeMalloc(action->parent->common);
+	temp->firstAction = action;
+	action->sibling = NULL;
+	action->parent = temp;
+
+	__freeTree(temp);
 }
 
 static void __freeTree(Node *node){
-	Node *child, *nextChild;
+	Action *child, *nextChild;
+	Node *nodeChild, *nextNodeChild;
 	NodeCommon *common;
 
 	common = node->common;
 	
-	for(child=(node->firstChild); child!=NULL; child=nextChild){
+	for(child=(node->firstAction); child!=NULL; child=nextChild){
 		nextChild = child->sibling;
-		__freeTree(child);
+		if(child->node != NULL){
+			__freeTree(child->node);
+		}
+
+		__actionFree(child);
 	}
 	__nodeFree(node);
 
-	if(common->count == 0){
+	if(common->nodeCount == 0){
 		printf("Freeing tree memory \n");
-		for(child=(common->nodeBank); child!=NULL; child=nextChild){
+		for(nodeChild=(common->nodeBank); nodeChild!=NULL; nodeChild=nextNodeChild){
+			nextNodeChild = nodeChild->next;
+			free(nodeChild);
+		}
+		for(child=(common->actionBank); child!=NULL; child=nextChild){
 			nextChild = child->sibling;
 			free(child);
 		}
@@ -603,8 +671,8 @@ static void __freePyTree(PyObject *pyNode){
 	node->common->pyCounter--;
 	if(node->common->pyCounter==0){
 		printf("Freeing py tree \n");
-		while(node->parent != NULL){
-			node = node->parent;
+		while(node->previousAction != NULL){
+			node = node->previousAction->parent;
 		}
 		Py_XDECREF(node->common->predictor);
 		__freeTree(node);
@@ -649,8 +717,8 @@ static void __getStateHistoryFromPyHistory(PyObject *pyHistory, char stateHistor
 	}
 }
 
-static Node* __initNodeChildren(Node *node, char actions[]){
-	Node *child, *previousChild, *firstChild;
+static Action* __initNodeChildren(Node *node, char actions[]){
+	Action *child, *previousChild, *firstChild;
 	int i, j, n;
 	for(n=0; n<MAX_AVAILABLE_MOVES && actions[n*5]>=0; n++);
 	if(n==0){
@@ -659,11 +727,10 @@ static Node* __initNodeChildren(Node *node, char actions[]){
 	previousChild = NULL;
 	firstChild = NULL;
 	for(i=0; i<n; i++){
-		child = __nodeMalloc(node->common);
+		child = __actionMalloc(node->common);
 
 		child->parent = node;
-		child->depth = child->parent->depth + 1;
-		for(j=0; j<ACTION_SIZE; j++){child->previousAction[j] = actions[i*ACTION_SIZE + j];}
+		for(j=0; j<ACTION_SIZE; j++){child->action[j] = actions[i*ACTION_SIZE + j];}
 
 		if(previousChild!=NULL){
 			previousChild->sibling = child;
@@ -690,7 +757,8 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 
 	common = malloc(sizeof(NodeCommon));
 	
-	common->count = 0;
+	common->nodeCount = 0;
+	common->actionCount = 0;
 	common->rootStateHistoryLen = PyList_Size(pyHistory);
 	__getStateHistoryFromPyHistory(pyHistory, common->rootStateHistory);
 	common->predictor = pyPredictor;	Py_XINCREF(pyPredictor);
@@ -699,6 +767,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	common->pyCounter = 1;
 	strcpy(common->dataPath, dataPath);
 	common->nodeBank = NULL;
+	common->actionBank = NULL;
 
 	root = __reInitTreeFromNode(__nodeMalloc(common), self, args);
 
@@ -732,13 +801,11 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 	root->end = end?1:0;
 	root->reward = reward?-1:0;
 	root->depth = common->rootStateHistoryLen;
-	root->isTop = 1;
-	root->stateSetFlag = 1;
-	root->firstChild = __initNodeChildren(root, actions);
+	root->firstAction = __initNodeChildren(root, actions);
 
 	// free old node's tree entirely
-	while(node->parent != NULL){
-		node = node->parent;
+	while(node->previousAction != NULL){
+		node = node->previousAction->parent;
 	}
 	__freeTree(node);
 
@@ -747,12 +814,15 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 	predictionInput = __prepareModelInput(1, stateHistories, boardModelInput, otherModelInput);
 	predictionOutput = PyObject_CallFunction(root->common->predictor, "O", predictionInput);
 	temp = __nodeMalloc(common);
-	temp->firstChild = root;
+	temp->firstAction = __actionMalloc(common);
+	temp->firstAction->parent = temp;
+	temp->firstAction->node = root;
 	__setChildrenValuePolicy(temp, predictionOutput, 0);
+	__actionFree(temp->firstAction);
 	__nodeFree(temp);
 	Py_XDECREF(predictionInput);Py_XDECREF(predictionOutput);
 
-	printf("New roots' node count: %li\n", root->common->count);
+	printf("New roots' node count: %li\n", root->common->nodeCount);
 
 	return root;
 }
@@ -772,19 +842,18 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
 	rootArr[0] = root;
 
-	printf("\nstart number of nodes %li \n", root->common->count);
+	printf("\nstart number of nodes %li \n", root->common->nodeCount);
 	for(i=0; i<NUM_SIMULATIONS; i++){
-		__runSimulations(rootArr, 1);
+		__runSimulations(rootArr, 1, 1);
 	}
-	printf("end number of nodes %li \n", root->common->count);
+	printf("end number of nodes %li \n", root->common->nodeCount);
 
 	__saveNodeInfo(root);
 	best = __bestChild(root);
 	__removeOtherChildren(root, best);
 	root->common->pyCounter++;
-	// __displayState(best->state);
 
-	for(i=0; i<ACTION_SIZE;i++){bestActions[i] = best->previousAction[i];}
+	for(i=0; i<ACTION_SIZE;i++){bestActions[i] = best->previousAction->action[i];}
 	for(; i<2*ACTION_SIZE;i++){bestActions[i] = -1;}
 	pyBestActions = __actionsToPy(bestActions);
 	pyBestAction = PyTuple_GetItem(pyBestActions, 0);
@@ -820,7 +889,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 		if(flag)break;
 
 		for(s=0; s<NUM_SIMULATIONS; s++){
-			__runSimulations(roots, MAX_CONCURRENT_GAMES);
+			__runSimulations(roots, MAX_CONCURRENT_GAMES, GENERATE_WITH_MODEL);
 		}
 
 		for(i=0, idxes=0; i<MAX_CONCURRENT_GAMES; i++){

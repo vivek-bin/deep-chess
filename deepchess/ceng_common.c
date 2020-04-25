@@ -29,6 +29,7 @@
 #define CASTLE_MOVES(p, s) (p==WHITE_IDX?(s==LEFT_CASTLE?CASTLE_WHITE_LEFT:CASTLE_WHITE_RIGHT):(s==LEFT_CASTLE?CASTLE_BLACK_LEFT:CASTLE_BLACK_RIGHT))
 #define MAX_POSSIBLE_MOVES ((BOARD_SIZE*BOARD_SIZE + 2 * LEN(PROMOTIONS))*BOARD_SIZE*BOARD_SIZE)
 
+int __compareState(char state[], char state2[]);
 void __displayState(char state[]);
 void __copyState(char state[], char blankState[]);
 int __getBoardBox(char state[], int player, int row, int col);

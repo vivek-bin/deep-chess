@@ -46,6 +46,16 @@ static PyObject* playRandomTillEnd(PyObject *self, PyObject *args);
 PyMODINIT_FUNC PyInit_cengine(void);
 
 
+int __compareState(char state[], char state2[]){
+	int i;
+	for(i=0; i<STATE_SIZE; i++){
+		if(state2[i] != state[i]){
+			return 0;
+		}
+	}
+	return 1;
+}
+
 void __displayState(char state[]){
 	int i, j, boxW, boxB;
 	

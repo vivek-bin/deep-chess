@@ -163,7 +163,6 @@ def generateGames():
 
 	model = TM.loadModel(loadForTraining=False)
 	predictor = lambda x:model.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)		# predict from model
-	equalPredictor = lambda x: [np.zeros((x.shape[0], 1), dtype="float32"), np.ones((x.shape[0], EG.MAX_POSSIBLE_MOVES), dtype="float32")]	# all states equal => initial untrained model
 
 	state, actions, end, reward = EG.init()
 
