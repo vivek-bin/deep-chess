@@ -5,16 +5,23 @@
 #include <math.h>
 #define NODE_BANK_LOT_SIZE (50000)
 #define ACTION_BANK_LOT_SIZE (500000)
-#define NUM_SIMULATIONS 800
-#define BACKPROP_DECAY 0.98
-#define MC_EXPLORATION_CONST 1
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
-#define MAX_CONCURRENT_GAMES 24
-#define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 20)
-#define BEST_CHILD_SCALE 1.0
 #define TRIM_DUPLICATES 1
+#define BEST_CHILD_SCALE 1.0
+#define MC_EXPLORATION_CONST 1
 #define GENERATE_WITH_MODEL 1
+#if GENERATE_WITH_MODEL == 0
+#define NUM_SIMULATIONS 2000
+#define BACKPROP_DECAY 0.99
+#define MAX_CONCURRENT_GAMES 1
+#define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 400)
+#else
+#define NUM_SIMULATIONS 800
+#define BACKPROP_DECAY 0.98
+#define MAX_CONCURRENT_GAMES 30
+#define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 10)
+#endif
 
 
 typedef struct NodeCommon NodeCommon;
@@ -62,6 +69,7 @@ struct NodeCommon{
 	char rootStateHistory[STATE_HISTORY_LEN][STATE_SIZE];
 	int rootStateHistoryLen;
 	int pyCounter;
+	long processId;
 	Node *nodeBank;
 	Action *actionBank;
 };
@@ -564,7 +572,7 @@ static void __saveNodeInfo(Node *node){
 	char *stateHistory[STATE_HISTORY_LEN];
 	int i;
 
-	sprintf(fileName, "%sgame_%05ld_move_%03d.json", node->common->dataPath, node->common->gameIndex, node->depth);
+	sprintf(fileName, "%sgame_%05ld_move_%03d_process_%04ld.json", node->common->dataPath, node->common->gameIndex, node->depth, (node->common->processId%10000));
 	oFile = fopen(fileName,"w");
 
 	fprintf(oFile, "{");
@@ -765,6 +773,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	common->gameIndex = __lastGameIndex(dataPath) + 1;
 	common->training = training;
 	common->pyCounter = 1;
+	common->processId = (long)getpid();
 	strcpy(common->dataPath, dataPath);
 	common->nodeBank = NULL;
 	common->actionBank = NULL;
@@ -822,7 +831,7 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 	__nodeFree(temp);
 	Py_XDECREF(predictionInput);Py_XDECREF(predictionOutput);
 
-	printf("New roots' node count: %li\n", root->common->nodeCount);
+	printf("New roots' node count: %li          action count: %li \n", root->common->nodeCount, root->common->actionCount);
 
 	return root;
 }
