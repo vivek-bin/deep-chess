@@ -39,7 +39,7 @@ static double __nodeValue(Node *node, int explore);
 static Node* __bestChild(Node *node);
 static Node* __getLeaf(Node *node);
 static void __backPropogate(Node *node);
-static void __runSimulations(Node *roots[], int numConc, int queryModel);
+static void __runSimulations(Node *roots[], int numConc);
 static void __saveNodeInfo(Node *node);
 static void __removeOtherChildren(Node *node, Node *best);
 static void __freeActionTree(Action *action);
@@ -326,7 +326,7 @@ static void __expandChildren(Node *node){
 
 	__getStateHistory(node, STATE_HISTORY_LEN, repeatStateHistory);
 	
-	for(previousChild=NULL, child=(node->firstAction); child!=NULL; previousChild=child, child=nextChild){
+	for(previousChild=NULL, child=(node->firstAction); (node->end==0) && child!=NULL; previousChild=child, child=nextChild){
 		nextChild = (child->sibling);
 		child->node = __nodeMalloc(node->common);
 
@@ -496,7 +496,7 @@ static void __backPropogate(Node *node){
 	}
 }
 
-static void __runSimulations(Node *roots[], int numConc, int queryModel){
+static void __runSimulations(Node *roots[], int numConc){
 	char *stateHistories[MAX_CONCURRENT_GAMES * MAX_AVAILABLE_MOVES][BOARD_HISTORY];
 	char boardModelInput[MAX_CONCURRENT_GAMES*MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE];
 	char otherModelInput[MAX_CONCURRENT_GAMES*MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE];
@@ -519,7 +519,7 @@ static void __runSimulations(Node *roots[], int numConc, int queryModel){
 		}
 	}
 
-	for(i=0; queryModel && i<numConc; i++){
+	for(i=0; GENERATE_WITH_MODEL && i<numConc; i++){
 		if(leafs[i] != NULL && leafs[i]->end == 0){
 			//find batch sizes
 			for(batchSizes[i]=0, child=(leafs[i]->firstAction); batchSizes[i]<MAX_AVAILABLE_MOVES && child!=NULL; batchSizes[i]++, child=(child->sibling));
@@ -531,7 +531,7 @@ static void __runSimulations(Node *roots[], int numConc, int queryModel){
 			totalBatchSize += batchSizes[i];
 		}
 	}
-	if(queryModel && totalBatchSize > 0){
+	if(GENERATE_WITH_MODEL && totalBatchSize > 0){
 		//prepare model input as numpy
 		predictionInput = __prepareModelInput(totalBatchSize, stateHistories, boardModelInput, otherModelInput);
 		if(predictionInput==NULL){printf(" ---- prediction input creation error \n");PyErr_Print();}
@@ -817,21 +817,22 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 		node = node->previousAction->parent;
 	}
 	__freeTree(node);
+	printf("New roots' node count: %li          action count: %li \n", root->common->nodeCount, root->common->actionCount);
 
 	// set value and policy of root
-	__getStateHistory(root, BOARD_HISTORY, stateHistories[0]);
-	predictionInput = __prepareModelInput(1, stateHistories, boardModelInput, otherModelInput);
-	predictionOutput = PyObject_CallFunction(root->common->predictor, "O", predictionInput);
-	temp = __nodeMalloc(common);
-	temp->firstAction = __actionMalloc(common);
-	temp->firstAction->parent = temp;
-	temp->firstAction->node = root;
-	__setChildrenValuePolicy(temp, predictionOutput, 0);
-	__actionFree(temp->firstAction);
-	__nodeFree(temp);
-	Py_XDECREF(predictionInput);Py_XDECREF(predictionOutput);
-
-	printf("New roots' node count: %li          action count: %li \n", root->common->nodeCount, root->common->actionCount);
+	if(GENERATE_WITH_MODEL){
+		__getStateHistory(root, BOARD_HISTORY, stateHistories[0]);
+		predictionInput = __prepareModelInput(1, stateHistories, boardModelInput, otherModelInput);
+		predictionOutput = PyObject_CallFunction(root->common->predictor, "O", predictionInput);
+		temp = __nodeMalloc(common);
+		temp->firstAction = __actionMalloc(common);
+		temp->firstAction->parent = temp;
+		temp->firstAction->node = root;
+		__setChildrenValuePolicy(temp, predictionOutput, 0);
+		__actionFree(temp->firstAction);
+		__nodeFree(temp);
+		Py_XDECREF(predictionInput);Py_XDECREF(predictionOutput);
+	}
 
 	return root;
 }
@@ -853,7 +854,7 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 
 	printf("\nstart number of nodes %li \n", root->common->nodeCount);
 	for(i=0; i<NUM_SIMULATIONS; i++){
-		__runSimulations(rootArr, 1, 1);
+		__runSimulations(rootArr, 1);
 	}
 	printf("end number of nodes %li \n", root->common->nodeCount);
 
@@ -898,7 +899,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 		if(flag)break;
 
 		for(s=0; s<NUM_SIMULATIONS; s++){
-			__runSimulations(roots, MAX_CONCURRENT_GAMES, GENERATE_WITH_MODEL);
+			__runSimulations(roots, MAX_CONCURRENT_GAMES);
 		}
 
 		for(i=0, idxes=0; i<MAX_CONCURRENT_GAMES; i++){
@@ -917,7 +918,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 				roots[i]->common->gameIndex = __lastGameIndex(roots[i]->common->dataPath) + 1 + idxes;
 				PyCapsule_SetPointer(pyRoots[i], (void*)roots[i]);
 				
-				printf("Start new game at    Idx: %i \n\n\n", i);
+				printf("Start new game number: %i          at Idx: %i \n\n\n", games, i);
 				idxes++;
 				games++;
 			}
