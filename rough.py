@@ -386,7 +386,7 @@ def generatedDataStats():
 		histories.append(history)
 
 	vals = {}
-	for field in ["END", "REWARD", "VALUE", "EXPLORATORY_VALUE"]:
+	for field in ["END", "REWARD", "VALUE", "EXPLORATORY_VALUE", "STATE_VALUE"]:
 		vals[field] = [x[field] for x in histories]
 	vals["EXPLORE ADDED VALUE"] = [x["EXPLORATORY_VALUE"]-x["VALUE"] for x in histories]
 	vals["SEARCHED_POLICY"] = [x for h in histories for w, x in h["SEARCHED_POLICY"].items()]
@@ -396,7 +396,53 @@ def generatedDataStats():
 		val = vals[key]
 		print("{:25} min: {: 04.9f}    max: {: 04.9f}    mean: {: 04.9f}    median: {: 04.9f}".format(key, min(val), max(val), statistics.mean(val), statistics.median(val)))
 
+def trainingDataCheck():
+	import json
+	import cengine as EG
+	import statistics
+	import os
+	import csearch as SE
+	import deepchess.trainmodel as TM
+	import numpy as np
+
+	historyFiles = os.listdir(CONST.DATA)
+	histories = []
+
+	dg = TM.DataSequence(CONST.BATCH_SIZE)
+	dg.historyFiles.sort()
+	for bIdx in range(len(dg)):
+		dataBatch = dg[bIdx]
+		if bIdx % 100 == 0:
+			print(bIdx)
+		if(True or np.any(dataBatch[0][0] < 0)) or (np.any(dataBatch[0][1] < 0)):
+			print("x -----", bIdx)
+			print(dataBatch[0][0].shape, dataBatch[0][0], "\n")
+			print(dataBatch[0][1].shape, dataBatch[0][1], "\n")
+
+
+def checkPrediction():
+	import json
+	import cengine as EG
+	import statistics
+	import os
+	import csearch as SE
+	import deepchess.trainmodel as TM
+	import numpy as np
+
+	model = TM.loadModel(loadForTraining=False)
+
+	historyFiles = os.listdir(CONST.DATA)
+	histories = []
+
+	dg = TM.DataSequence(1)
+	for bIdx in [3,4]:#range(len(dg)):
+		dataBatch = dg[bIdx]
+		o = model.predict(dataBatch[0])
+		print(o[0])
+		print(o[1], "\n", np.argmax(o[1]), np.max(o[1]))
+		print("---------------------\n")
+
 
 print(CONST.LAPSED_TIME())
-generatedDataStats()
+checkPrediction()
 print(CONST.LAPSED_TIME())

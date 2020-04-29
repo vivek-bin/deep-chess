@@ -29,8 +29,13 @@ from .models.models import *
 
 
 class DataSequence(Sequence):
-	def __init__(self, batchSize):
+	def __init__(self, batchSize, validation=0):
 		self.historyFiles = os.listdir(CONST.DATA)
+		if validation == 0:
+			self.historyFiles = self.historyFiles[:int(len(self.historyFiles)*0.9)]
+		elif validation == 1:
+			self.historyFiles = self.historyFiles[int(len(self.historyFiles)*0.9):]
+
 		self.batchSize = batchSize
 
 		self.mem = SE.allocNpMemory()
@@ -38,7 +43,7 @@ class DataSequence(Sequence):
 		random.shuffle(self.historyFiles)
 
 	def __len__(self):
-		return int(np.ceil(len(self.historyFiles) / self.batchSize))
+		return int(np.ceil(len(self.historyFiles) // self.batchSize))			# to avoid half batches as they lead to error
 
 	def __getitem__(self, idx):
 		fileNames = self.historyFiles[idx*self.batchSize:(idx+1)*self.batchSize]
@@ -100,7 +105,7 @@ def valuePolicyLoss(targets=None, outputs=None):
 def getLastCheckpoint():
 	c = os.listdir(CONST.MODELS)
 	c = [x for x in c if x.startswith(CONST.MODEL_NAME_PREFIX) and x.endswith(CONST.MODEL_NAME_SUFFIX)]
-	return sorted(c)[-1] if c else False
+	return sorted(c)[0] if c else False
 
 def getLastEpoch():
 	lastCheckpoint = getLastCheckpoint()
@@ -117,16 +122,17 @@ def loadModel(loadForTraining=True):
 	#get model
 	trainingModel = resNetChessModel()
 	if loadForTraining:
-		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY), loss=["mean_squared_error", "categorical_crossentropy"])
-	trainingModel.summary()
+		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY), loss=["mean_absolute_error", "categorical_crossentropy"], loss_weights=[100, 1])
 
 	checkPointName = getLastCheckpoint()
 	if checkPointName:
 		# load checkpoint if available
+		print("Loading model:", checkPointName)
 		trainingModel.load_weights(CONST.MODELS + checkPointName)
 	else:
 		# save initial model
 		trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_NAME_SUFFIX)
+		trainingModel.summary()
 
 	return trainingModel
 
@@ -136,7 +142,7 @@ def trainModel():
 	initialEpoch = getLastEpoch()
 
 	# prepare data generators
-	trainingDataGenerator = DataSequence(batchSize=CONST.BATCH_SIZE)
+	trainingDataGenerator = DataSequence(batchSize=CONST.BATCH_SIZE, validation=-1)
 	
 	# prepare callbacks
 	callbacks = []
@@ -147,5 +153,5 @@ def trainModel():
 	_ = trainingModel.fit(trainingDataGenerator, epochs=CONST.NUM_EPOCHS, callbacks=callbacks)
 
 	# save model after training
-	trainingModel.save(CONST.MODELS + trainingModel.name + "-" + str(initialEpoch+1) + CONST.MODEL_NAME_SUFFIX)
+	trainingModel.save(CONST.MODELS + trainingModel.name + "-" + str(initialEpoch+1).zfill(4) + CONST.MODEL_NAME_SUFFIX)
 

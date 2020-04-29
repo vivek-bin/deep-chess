@@ -9,17 +9,18 @@
 #define BOARD_HISTORY 4
 #define TRIM_DUPLICATES 1
 #define BEST_CHILD_SCALE 1.0
-#define MC_EXPLORATION_CONST 1
 #define GENERATE_WITH_MODEL 1
 #if GENERATE_WITH_MODEL == 0
 #define NUM_SIMULATIONS 2000
 #define BACKPROP_DECAY 0.99
 #define MAX_CONCURRENT_GAMES 1
+#define MC_EXPLORATION_CONST 0.1
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 400)
 #else
 #define NUM_SIMULATIONS 800
 #define BACKPROP_DECAY 0.98
-#define MAX_CONCURRENT_GAMES 30
+#define MAX_CONCURRENT_GAMES 25
+#define MC_EXPLORATION_CONST 1
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 10)
 #endif
 
@@ -942,8 +943,8 @@ static PyObject* allocNpMemory(PyObject *self, PyObject *args){
 	char *boardModelInput, *otherModelInput;
 	PyObject *pyOutput;
 
-	boardModelInput = malloc(MAX_AVAILABLE_MOVES * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE);
-	otherModelInput = malloc(MAX_AVAILABLE_MOVES * 3 * BOARD_SIZE*BOARD_SIZE);
+	boardModelInput = malloc(4096 * BOARD_HISTORY * 2*BOARD_SIZE*BOARD_SIZE);
+	otherModelInput = malloc(4096 * 3 * BOARD_SIZE*BOARD_SIZE);
 
 	pyOutput = PyTuple_New(2);
 	PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)boardModelInput, NULL, __freeMem));
@@ -954,8 +955,8 @@ static PyObject* allocNpMemory(PyObject *self, PyObject *args){
 static PyObject* prepareModelInput(PyObject *self, PyObject *args){
 	PyObject *pCapsules, *pyStateHistories, *pyStateHistory;
 	char *boardModelInput, *otherModelInput;
-	char *stateHistories[MAX_AVAILABLE_MOVES][BOARD_HISTORY];
-	char states[MAX_AVAILABLE_MOVES * BOARD_HISTORY][STATE_SIZE];
+	char *stateHistories[4096][BOARD_HISTORY];
+	char states[4096 * BOARD_HISTORY][STATE_SIZE];
 	int batchSize, i, j, s, offset, numStates;
 
 	import_array();
