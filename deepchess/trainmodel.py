@@ -105,7 +105,7 @@ def valuePolicyLoss(targets=None, outputs=None):
 def getLastCheckpoint():
 	c = os.listdir(CONST.MODELS)
 	c = [x for x in c if x.startswith(CONST.MODEL_NAME_PREFIX) and x.endswith(CONST.MODEL_NAME_SUFFIX)]
-	return sorted(c)[0] if c else False
+	return sorted(c)[-1] if c else False
 
 def getLastEpoch():
 	lastCheckpoint = getLastCheckpoint()
@@ -131,7 +131,7 @@ def loadModel(loadForTraining=True):
 		trainingModel.load_weights(CONST.MODELS + checkPointName)
 	else:
 		# save initial model
-		trainingModel.save(CONST.MODELS + trainingModel.name + CONST.MODEL_NAME_SUFFIX)
+		trainingModel.save(CONST.MODELS + trainingModel.name + "-0000" + CONST.MODEL_NAME_SUFFIX)
 		trainingModel.summary()
 
 	return trainingModel

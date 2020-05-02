@@ -18,7 +18,7 @@
 #define STATE_SIZE (2*BOARD_SIZE*BOARD_SIZE + 4 + 2 + 1)
 #define ACTION_SIZE 5
 #define MAX_PIECE_MOVES (4*(BOARD_SIZE-1) + 1)
-#define MAX_GAME_STEPS 200
+#define MAX_GAME_STEPS 180
 #define LEN(x) (sizeof(x)/sizeof(x[0]))
 #define OPPONENT(x) (x==WHITE_IDX?BLACK_IDX:WHITE_IDX)
 #define SCORING(x) (x==WHITE_IDX?1:-1)
