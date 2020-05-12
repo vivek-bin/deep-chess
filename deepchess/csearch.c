@@ -3,8 +3,10 @@
 #include <numpy/arrayobject.h>
 #include <dirent.h>
 #include <math.h>
+#define VERBOSE 0
 #define NODE_BANK_LOT_SIZE (50000)
 #define ACTION_BANK_LOT_SIZE (500000)
+#define MAX_ALLOCATIONS 100
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
 #define TRIM_DUPLICATES 1
@@ -73,6 +75,8 @@ struct NodeCommon{
 	long processId;
 	Node *nodeBank;
 	Action *actionBank;
+	Node *nodeArrayBank[MAX_ALLOCATIONS];
+	Action *actionArrayBank[MAX_ALLOCATIONS];
 };
 
 struct Node{
@@ -105,14 +109,16 @@ struct Action{
 
 static Node* __nodeMalloc(NodeCommon *common){
 	Node *node;
-	long i;
+	long i, j;
 
 	// allocate more if bank is empty
 	if(common->nodeBank == NULL){
-		common->nodeBank = malloc(sizeof(Node));
+		for(j=0; j<MAX_ALLOCATIONS && common->nodeArrayBank[j]!=NULL; j++);
+		common->nodeArrayBank[j] = malloc(sizeof(Node)*NODE_BANK_LOT_SIZE);
+		common->nodeBank = &(common->nodeArrayBank[j][0]);
 		common->nodeBank->next = NULL;
-		for(i=0; i<NODE_BANK_LOT_SIZE; i++){
-			node = malloc(sizeof(Node));
+		for(i=1; i<NODE_BANK_LOT_SIZE; i++){
+			node = &(common->nodeArrayBank[j][i]);
 			node->next = common->nodeBank;
 			common->nodeBank = node;
 		}
@@ -149,14 +155,16 @@ static void __nodeFree(Node *node){
 
 static Action* __actionMalloc(NodeCommon *common){
 	Action *action;
-	long i;
+	long i, j;
 
 	// allocate more if bank is empty
 	if(common->actionBank == NULL){
-		common->actionBank = malloc(sizeof(Action));
+		for(j=0; j<MAX_ALLOCATIONS && common->actionArrayBank[j]!=NULL; j++);
+		common->actionArrayBank[j] = malloc(sizeof(Action)*ACTION_BANK_LOT_SIZE);
+		common->actionBank = &(common->actionArrayBank[j][0]);
 		common->actionBank->sibling = NULL;
-		for(i=0; i<ACTION_BANK_LOT_SIZE; i++){
-			action = malloc(sizeof(Action));
+		for(i=1; i<ACTION_BANK_LOT_SIZE; i++){
+			action = &(common->actionArrayBank[j][i]);
 			action->sibling = common->actionBank;
 			common->actionBank = action;
 		}
@@ -645,8 +653,8 @@ static void __freeActionTree(Action *action){
 
 static void __freeTree(Node *node){
 	Action *child, *nextChild;
-	Node *nodeChild, *nextNodeChild;
 	NodeCommon *common;
+	int j;
 
 	common = node->common;
 	
@@ -661,14 +669,12 @@ static void __freeTree(Node *node){
 	__nodeFree(node);
 
 	if(common->nodeCount == 0){
-		printf("Freeing tree memory \n");
-		for(nodeChild=(common->nodeBank); nodeChild!=NULL; nodeChild=nextNodeChild){
-			nextNodeChild = nodeChild->next;
-			free(nodeChild);
+		if(VERBOSE)printf("Freeing tree memory \n");
+		for(j=0; j<MAX_ALLOCATIONS && common->nodeArrayBank[j]!=NULL; j++){
+			free(common->nodeArrayBank[j]);
 		}
-		for(child=(common->actionBank); child!=NULL; child=nextChild){
-			nextChild = child->sibling;
-			free(child);
+		for(j=0; j<MAX_ALLOCATIONS && common->actionArrayBank[j]!=NULL; j++){
+			free(common->actionArrayBank[j]);
 		}
 		free(common);
 	}
@@ -679,7 +685,7 @@ static void __freePyTree(PyObject *pyNode){
 	node = (Node*)PyCapsule_GetPointer(pyNode, NULL);
 	node->common->pyCounter--;
 	if(node->common->pyCounter==0){
-		printf("Freeing py tree \n");
+		if(VERBOSE)printf("Freeing py tree \n");
 		while(node->previousAction != NULL){
 			node = node->previousAction->parent;
 		}
@@ -759,6 +765,7 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	NodeCommon *common;
 	int end, reward, training;
 	char *dataPath;
+	int i;
 
 	import_array();
 
@@ -778,6 +785,8 @@ static PyObject* initTree(PyObject *self, PyObject *args){
 	strcpy(common->dataPath, dataPath);
 	common->nodeBank = NULL;
 	common->actionBank = NULL;
+	for(i=0; i<MAX_ALLOCATIONS; i++){common->nodeArrayBank[i] = NULL;}
+	for(i=0; i<MAX_ALLOCATIONS; i++){common->actionArrayBank[i] = NULL;}
 
 	root = __reInitTreeFromNode(__nodeMalloc(common), self, args);
 
@@ -818,7 +827,7 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 		node = node->previousAction->parent;
 	}
 	__freeTree(node);
-	printf("New roots' node count: %li          action count: %li \n", root->common->nodeCount, root->common->actionCount);
+	if(VERBOSE)printf("New roots' node count: %li          action count: %li \n", root->common->nodeCount, root->common->actionCount);
 
 	// set value and policy of root
 	if(GENERATE_WITH_MODEL){
@@ -839,42 +848,102 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args){
 }
 
 static PyObject* searchTree(PyObject *self, PyObject *args){
-	PyObject *pyRoot, *output;
+	PyObject *pyRoots, *pyOutput, *pyOutputs;
 	PyObject *pyBestActions, *pyBestAction;
-	Node *root, *best, *rootArr[1];
+	Node *roots[MAX_CONCURRENT_GAMES], *best;
 	char bestActions[2*ACTION_SIZE];
-	int i;
+	int i, j, numRoots;
 	time_t t;
 
 	srand((unsigned) time(&t));
 	import_array();
 
-	pyRoot = PyTuple_GetItem(args, 0);
-	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
-	rootArr[0] = root;
+	pyRoots = PyTuple_GetItem(args, 0);
+	numRoots = PyList_Check(pyRoots)?PyList_Size(pyRoots):1;
+	if(numRoots > 1){
+		for(i=0; i<numRoots; i++){
+			roots[i] = (Node*)PyCapsule_GetPointer(PyList_GetItem(pyRoots, i), NULL);
+		}
+	}
+	else{
+		roots[0] = (Node*)PyCapsule_GetPointer(pyRoots, NULL);
+	}
 
-	printf("\nstart number of nodes %li \n", root->common->nodeCount);
+	if(VERBOSE)printf("\nstart number of nodes %li \n", roots[0]->common->nodeCount);
 	for(i=0; i<NUM_SIMULATIONS; i++){
+		__runSimulations(roots, numRoots);
+	}
+	if(VERBOSE)printf("end number of nodes %li \n", roots[0]->common->nodeCount);
+
+	for(pyOutputs=NULL, i=0; i<numRoots; i++){
+		if(roots[i]->end == 0){
+			__saveNodeInfo(roots[i]);
+			best = __bestChild(roots[i]);
+			__removeOtherChildren(roots[i], best);
+			roots[i]->common->pyCounter++;
+
+			for(j=0; j<ACTION_SIZE;j++){bestActions[j] = best->previousAction->action[j];}
+			for(; j<2*ACTION_SIZE;j++){bestActions[j] = -1;}
+			pyBestActions = __actionsToPy(bestActions);
+			pyBestAction = PyTuple_GetItem(pyBestActions, 0);
+			Py_XINCREF(pyBestAction);
+			Py_XDECREF(pyBestActions);
+
+			pyOutput = PyTuple_New(2);
+			PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)best, NULL, __freePyTree));
+			PyTuple_SetItem(pyOutput, 1, pyBestAction);
+		}
+		else{
+			pyOutput = PyTuple_New(2);
+			PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)roots[i], NULL, __freePyTree));
+			PyTuple_SetItem(pyOutput, 1, PyTuple_New(0));
+		}
+
+		if(numRoots > 1){
+			if(i == 0){
+				pyOutputs = PyList_New(numRoots);
+			}
+			PyList_SetItem(pyOutputs, i, pyOutput);
+		}
+		else{
+			pyOutputs = pyOutput;
+		}
+	}
+
+	return pyOutputs;
+}
+
+static PyObject* playMoveOnTree(PyObject *self, PyObject *args){
+	PyObject *pyRoot, *pyOutput;
+	PyObject *pyAction;
+	Node *root, *nextRoot, *rootArr[1];
+	Action *actionNode;
+	char action[ACTION_SIZE];
+	int i;
+
+	pyRoot = PyTuple_GetItem(args, 0);
+	pyAction = PyTuple_GetItem(args, 1);
+	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
+	__actionFromPy(pyAction, action);
+		
+	if(root->firstAction->node == NULL){
+		rootArr[0] = root;
 		__runSimulations(rootArr, 1);
 	}
-	printf("end number of nodes %li \n", root->common->nodeCount);
+	for(nextRoot=NULL, actionNode=root->firstAction; actionNode!=NULL; actionNode=actionNode->sibling){
+		for(i=0; i<ACTION_SIZE && actionNode->action[i]==action[i]; i++);
+		if(i == ACTION_SIZE){
+			nextRoot = actionNode->node;
+			break;
+		}
+	}
+	if(nextRoot == NULL){printf("action not found! \n");}
+	
+	__removeOtherChildren(root, nextRoot);
+	nextRoot->common->pyCounter++;
+	pyOutput = PyCapsule_New((void*)nextRoot, NULL, __freePyTree);
 
-	__saveNodeInfo(root);
-	best = __bestChild(root);
-	__removeOtherChildren(root, best);
-	root->common->pyCounter++;
-
-	for(i=0; i<ACTION_SIZE;i++){bestActions[i] = best->previousAction->action[i];}
-	for(; i<2*ACTION_SIZE;i++){bestActions[i] = -1;}
-	pyBestActions = __actionsToPy(bestActions);
-	pyBestAction = PyTuple_GetItem(pyBestActions, 0);
-	Py_XINCREF(pyBestAction);
-	Py_XDECREF(pyBestActions);
-
-	output = PyTuple_New(2);
-	PyTuple_SetItem(output, 0, PyCapsule_New((void*)best, NULL, __freePyTree));
-	PyTuple_SetItem(output, 1, pyBestAction);
-	return output;
+	return pyOutput;
 }
 
 static PyObject* generateGames(PyObject *self, PyObject *args){
@@ -911,7 +980,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 				roots[i] = bests[i];
 				if(roots[i]->end){
 					__displayState(roots[i]->state);
-					printf("Game ended at        Idx: %i         Move No: %i           Time: %f \n", i, roots[i]->depth, difftime(time(NULL), startTime));
+					if(VERBOSE)printf("Game ended at        Idx: %i         Move No: %i           Time: %f \n", i, roots[i]->depth, difftime(time(NULL), startTime));
 				}
 			}
 			if(roots[i]->end && games < NUM_GENERATE_GAMES){
@@ -919,7 +988,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 				roots[i]->common->gameIndex = __lastGameIndex(roots[i]->common->dataPath) + 1 + idxes;
 				PyCapsule_SetPointer(pyRoots[i], (void*)roots[i]);
 				
-				printf("Start new game number: %i          at Idx: %i \n\n\n", games, i);
+				if(VERBOSE)printf("Start new game number: %i          at Idx: %i \n\n\n", games, i);
 				idxes++;
 				games++;
 			}
@@ -1012,6 +1081,7 @@ static PyObject* test(PyObject *self, PyObject *args){
 static PyMethodDef csearchMethods[] = {
     {"initTree",  initTree, METH_VARARGS, "create new tree"},
     {"searchTree",  searchTree, METH_VARARGS, "search for next move."},
+    {"playMoveOnTree",  playMoveOnTree, METH_VARARGS, "play a move on an existing tree, to move one node down."},
     {"generateGames",  generateGames, METH_VARARGS, "generate consurrent games."},
     {"allocNpMemory",  allocNpMemory, METH_VARARGS, "allocate memory for numpy arrays."},
     {"prepareModelInput",  prepareModelInput, METH_VARARGS, "prepare model input from histories."},

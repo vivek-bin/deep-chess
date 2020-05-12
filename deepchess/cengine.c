@@ -313,7 +313,7 @@ void __actionFromPy(PyObject* pyAction, char action[]){
 	pos = PyTuple_GetItem(pyAction, 1);
 	action[2] = PyLong_AsLong(PyTuple_GetItem(pos, 0));
 	action[3] = PyLong_AsLong(PyTuple_GetItem(pos, 1));
-	action[4] = (PyTuple_Size(pos)>2)?PyLong_AsLong(PyTuple_GetItem(pos, 2)):-1;
+	action[4] = (PyTuple_Size(pos)>2)?PyLong_AsLong(PyTuple_GetItem(pos, 2)):0;
 }
 
 

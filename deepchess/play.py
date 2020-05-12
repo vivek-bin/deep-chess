@@ -158,6 +158,41 @@ def playGame():
 
 	return end, history
 
+def compareModels(firstIdx, secondIdx, count):
+	modelFirst = TM.loadModel(loadForTraining=False, idx=firstIdx)
+	modelSecond = TM.loadModel(loadForTraining=False, idx=secondIdx)
+	predictorFirst = lambda x:modelFirst.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
+	predictorSecond = lambda x:modelSecond.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
+	
+	state, actions, end, reward = EG.init()
+	states = [state for _ in range(count)]
+	histories = [[] for _ in range(count)]
+
+	rootsFirst = [SE.initTree(state, actions, end, reward, [], predictorFirst, CONST.DATA, True) for _ in range(count)]
+	rootsSecond = [SE.initTree(state, actions, end, reward, [], predictorSecond, CONST.DATA, True) for _ in range(count)]
+	roots = [rootsFirst, rootsSecond]
+	
+	pIdx, oIdx = 0, 1
+	while not end:
+		results = SE.searchTree(roots[pIdx])
+		for i, result in enumerate(results):
+			roots[pIdx][i] = result[0]
+			action = result[1]
+			if(action):
+				roots[oIdx][i] = SE.playMoveOnTree(roots[oIdx][i], action)
+
+				nextState, actions, end, reward = EG.play(states[i], action, len(histories[i])+1)
+				histories[i].append(dict(STATE=states[i], ACTION=action, NEXT_STATE=nextState, REWARD=reward, END=end))
+				states[i] = nextState
+		
+		pIdx, oIdx = oIdx, pIdx
+	
+	for state, history in zip(states, histories):
+		printBoard(state, len(history), end)
+	
+	return [str(history[-1]["REWARD"]) for history in histories]
+
+
 def generateGames():
 	assert CONST.SEARCH_TYPE == "C"
 

@@ -102,13 +102,13 @@ def valuePolicyLoss(targets=None, outputs=None):
 	return valueLoss + policyLoss
 
 
-def getLastCheckpoint():
+def getCheckpointName(idx):
 	c = os.listdir(CONST.MODELS)
 	c = [x for x in c if x.startswith(CONST.MODEL_NAME_PREFIX) and x.endswith(CONST.MODEL_NAME_SUFFIX)]
-	return sorted(c)[-1] if c else False
+	return sorted(c)[idx] if c else False
 
 def getLastEpoch():
-	lastCheckpoint = getLastCheckpoint()
+	lastCheckpoint = getCheckpointName(-1)
 	if lastCheckpoint:
 		epoch = lastCheckpoint[len(CONST.MODEL_NAME_PREFIX)+1:][:4]
 		try:
@@ -118,13 +118,13 @@ def getLastEpoch():
 	
 	return 0
 
-def loadModel(loadForTraining=True):
+def loadModel(loadForTraining=True, idx=-1):
 	#get model
 	trainingModel = resNetChessModel()
 	if loadForTraining:
 		trainingModel.compile(optimizer=Adam(lr=CONST.LEARNING_RATE, decay=CONST.LEARNING_RATE_DECAY), loss=["mean_absolute_error", "categorical_crossentropy"], loss_weights=[100, 1])
 
-	checkPointName = getLastCheckpoint()
+	checkPointName = getCheckpointName(idx)
 	if checkPointName:
 		# load checkpoint if available
 		print("Loading model:", checkPointName)
