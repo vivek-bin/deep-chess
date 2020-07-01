@@ -39,10 +39,10 @@ def main():
 	if compareModelsFlag:
 		from deepchess.play import compareModels
 
-		rewards = compareModels(firstIdx=-1, secondIdx=0, count=4)
+		rewards = compareModels(firstIdx=-1, secondIdx=0, count=16)
 		print("latest model as white, results: ", ", ".join(rewards))
 
-		rewards = compareModels(firstIdx=0, secondIdx=-1, count=4)
+		rewards = compareModels(firstIdx=0, secondIdx=-1, count=16)
 		print("latest model as black, results: ", ", ".join(rewards))
 
 		print(CONST.LAPSED_TIME())

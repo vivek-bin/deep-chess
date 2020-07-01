@@ -158,11 +158,18 @@ def playGame():
 
 	return end, history
 
-def compareModels(firstIdx, secondIdx, count):
-	modelFirst = TM.loadModel(loadForTraining=False, idx=firstIdx)
-	modelSecond = TM.loadModel(loadForTraining=False, idx=secondIdx)
-	predictorFirst = lambda x:modelFirst.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
-	predictorSecond = lambda x:modelSecond.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
+def compareModels(firstIdx=None, secondIdx=None, count=1):
+	if firstIdx is None:
+		predictorFirst = lambda x:(np.zeros((np.shape(x)[0], 1)), np.zeros((np.shape(x)[0], EG.MAX_POSSIBLE_MOVES)))
+	else:
+		modelFirst = TM.loadModel(loadForTraining=False, idx=firstIdx)
+		predictorFirst = lambda x:modelFirst.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
+	
+	if secondIdx is None:
+		predictorSecond = lambda x:(np.zeros((np.shape(x)[0], 1)), np.zeros((np.shape(x)[0], EG.MAX_POSSIBLE_MOVES)))
+	else:
+		modelSecond = TM.loadModel(loadForTraining=False, idx=secondIdx)
+		predictorSecond = lambda x:modelSecond.predict(x, batch_size=CONST.PREDICTION_BATCH_SIZE)
 	
 	state, actions, end, reward = EG.init()
 	states = [state for _ in range(count)]
@@ -171,19 +178,21 @@ def compareModels(firstIdx, secondIdx, count):
 	rootsFirst = [SE.initTree(state, actions, end, reward, [], predictorFirst, CONST.DATA, True) for _ in range(count)]
 	rootsSecond = [SE.initTree(state, actions, end, reward, [], predictorSecond, CONST.DATA, True) for _ in range(count)]
 	roots = [rootsFirst, rootsSecond]
+	endFlags = [False for _ in range(count)]
 	
 	pIdx, oIdx = 0, 1
-	while not end:
+	while sum(endFlags) < count:
 		results = SE.searchTree(roots[pIdx])
 		for i, result in enumerate(results):
-			roots[pIdx][i] = result[0]
 			action = result[1]
-			if(action):
+			if action and not endFlags[i]:
+				roots[pIdx][i] = result[0]
 				roots[oIdx][i] = SE.playMoveOnTree(roots[oIdx][i], action)
 
 				nextState, actions, end, reward = EG.play(states[i], action, len(histories[i])+1)
 				histories[i].append(dict(STATE=states[i], ACTION=action, NEXT_STATE=nextState, REWARD=reward, END=end))
 				states[i] = nextState
+				endFlags[i] = bool(end)
 		
 		pIdx, oIdx = oIdx, pIdx
 	

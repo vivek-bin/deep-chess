@@ -10,7 +10,7 @@
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
 #define TRIM_DUPLICATES 1
-#define BEST_CHILD_SCALE 1.0
+#define BEST_CHILD_SCALE 3.0			//modify according to required randomness in move selection; example, during testing, we need low randomness, so higher value
 #define GENERATE_WITH_MODEL 1
 #if GENERATE_WITH_MODEL == 0
 #define NUM_SIMULATIONS 2000
@@ -58,6 +58,7 @@ static Node* __reInitTreeFromNode(Node *node, PyObject *self, PyObject *args);
 static PyObject* initTree(PyObject *self, PyObject *args);
 static PyObject* searchTree(PyObject *self, PyObject *args);
 static PyObject* generateGames(PyObject *self, PyObject *args);
+static PyObject* getRootState(PyObject *self, PyObject *args);
 static PyObject* test(PyObject *self, PyObject *args);
 
 
@@ -523,6 +524,7 @@ static void __runSimulations(Node *roots[], int numConc){
 			leafs[i] = NULL;
 		}
 		else{
+			if(VERBOSE){printf("Travelling to leaf for root#%i\n", i);}
 			leafs[i] = __getLeaf(roots[i]);
 			__expandChildren(leafs[i]);
 		}
@@ -530,6 +532,7 @@ static void __runSimulations(Node *roots[], int numConc){
 
 	for(i=0; GENERATE_WITH_MODEL && i<numConc; i++){
 		if(leafs[i] != NULL && leafs[i]->end == 0){
+			if(VERBOSE){printf("Setting history for root#%i\n", i);}
 			//find batch sizes
 			for(batchSizes[i]=0, child=(leafs[i]->firstAction); batchSizes[i]<MAX_AVAILABLE_MOVES && child!=NULL; batchSizes[i]++, child=(child->sibling));
 
@@ -542,16 +545,19 @@ static void __runSimulations(Node *roots[], int numConc){
 	}
 	if(GENERATE_WITH_MODEL && totalBatchSize > 0){
 		//prepare model input as numpy
+		if(VERBOSE){printf("Preparing model input\n");}
 		predictionInput = __prepareModelInput(totalBatchSize, stateHistories, boardModelInput, otherModelInput);
 		if(predictionInput==NULL){printf(" ---- prediction input creation error \n");PyErr_Print();}
 
 		//prediction using model
+		if(VERBOSE){printf("Querying model\n");}
 		predictionOutput = PyObject_CallFunction(roots[0]->common->predictor, "O", predictionInput);
 		if(predictionOutput==NULL){printf(" ---- prediction error \n");PyErr_Print();}
 		
 		for(i=0; i<numConc; i++){
 			if(batchSizes[i] > 0){
 				//set children value policy
+				if(VERBOSE){printf("Setting value and policy for root#%i\n", i);}
 				__setChildrenValuePolicy(leafs[i], predictionOutput, batchOffset[i]);
 			}
 		}
@@ -561,6 +567,7 @@ static void __runSimulations(Node *roots[], int numConc){
 	// after expansion, select best child of node
 	for(i=0; i<numConc; i++){
 		if(leafs[i] != NULL && leafs[i]->end == 0){
+			if(VERBOSE){printf("Select best child for backpropogation for root#%i\n", i);}
 			leafs[i] = __bestChild(leafs[i]);
 		}
 	}
@@ -568,6 +575,7 @@ static void __runSimulations(Node *roots[], int numConc){
 	// backpropogate all active game trees
 	for(i=0; i<numConc; i++){
 		if(leafs[i] != NULL){
+			if(VERBOSE){printf("Backpropogating root#%i\n", i);}
 			__backPropogate(leafs[i]);
 		}
 	}
@@ -859,13 +867,18 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 	import_array();
 
 	pyRoots = PyTuple_GetItem(args, 0);
-	numRoots = PyList_Check(pyRoots)?PyList_Size(pyRoots):1;
-	if(numRoots > 1){
+	if(PyList_Check(pyRoots)){
+		numRoots = PyList_Size(pyRoots);
 		for(i=0; i<numRoots; i++){
 			roots[i] = (Node*)PyCapsule_GetPointer(PyList_GetItem(pyRoots, i), NULL);
+			if(VERBOSE){
+				printf("\n\n    Game Number: %i\n", i);
+				__displayState(roots[i]->state);
+			}
 		}
 	}
 	else{
+		numRoots = 1;
 		roots[0] = (Node*)PyCapsule_GetPointer(pyRoots, NULL);
 	}
 
@@ -877,10 +890,10 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 
 	for(pyOutputs=NULL, i=0; i<numRoots; i++){
 		if(roots[i]->end == 0){
+			if(VERBOSE)printf("Saving current root and moving to best child for root#%i \n", i);
 			__saveNodeInfo(roots[i]);
 			best = __bestChild(roots[i]);
 			__removeOtherChildren(roots[i], best);
-			roots[i]->common->pyCounter++;
 
 			for(j=0; j<ACTION_SIZE;j++){bestActions[j] = best->previousAction->action[j];}
 			for(; j<2*ACTION_SIZE;j++){bestActions[j] = -1;}
@@ -889,17 +902,20 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 			Py_XINCREF(pyBestAction);
 			Py_XDECREF(pyBestActions);
 
+			roots[i]->common->pyCounter++;
 			pyOutput = PyTuple_New(2);
 			PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)best, NULL, __freePyTree));
 			PyTuple_SetItem(pyOutput, 1, pyBestAction);
 		}
 		else{
+			if(VERBOSE)printf("Return same because tree has ended, for root#%i \n", i);
+			roots[i]->common->pyCounter++;
 			pyOutput = PyTuple_New(2);
 			PyTuple_SetItem(pyOutput, 0, PyCapsule_New((void*)roots[i], NULL, __freePyTree));
 			PyTuple_SetItem(pyOutput, 1, PyTuple_New(0));
 		}
 
-		if(numRoots > 1){
+		if(PyList_Check(pyRoots)){
 			if(i == 0){
 				pyOutputs = PyList_New(numRoots);
 			}
@@ -910,6 +926,7 @@ static PyObject* searchTree(PyObject *self, PyObject *args){
 		}
 	}
 
+	if(VERBOSE)printf("Returning from search \n");
 	return pyOutputs;
 }
 
@@ -1053,6 +1070,17 @@ static PyObject* prepareModelInput(PyObject *self, PyObject *args){
 	return __prepareModelInput(batchSize, stateHistories, boardModelInput, otherModelInput);
 }
 
+static PyObject* getRootState(PyObject *self, PyObject *args){
+	PyObject *pyRoot, *pyState;
+	Node *root;
+
+	pyRoot = PyTuple_GetItem(args, 0);
+	root = (Node*)PyCapsule_GetPointer(pyRoot, NULL);
+	
+	pyState = __stateToPy(root->state);
+	return pyState;
+}
+
 static void __test(PyObject *predictionOutput){
 	PyArrayObject *pyValues, *pyPolicies;
 	long idx, b;
@@ -1085,6 +1113,7 @@ static PyMethodDef csearchMethods[] = {
     {"generateGames",  generateGames, METH_VARARGS, "generate consurrent games."},
     {"allocNpMemory",  allocNpMemory, METH_VARARGS, "allocate memory for numpy arrays."},
     {"prepareModelInput",  prepareModelInput, METH_VARARGS, "prepare model input from histories."},
+    {"getRootState",  getRootState, METH_VARARGS, "print the state of current root node."},
     {"test",  test, METH_VARARGS, "individual test func."},
     {NULL, NULL, 0, NULL}        /* Sentinel */
 };
