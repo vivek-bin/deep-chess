@@ -10,7 +10,7 @@
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
 #define TRIM_DUPLICATES 1
-#define BEST_CHILD_SCALE 3.0			//modify according to required randomness in move selection; example, during testing, we need low randomness, so higher value
+#define BEST_CHILD_SCALE 1.0			//weighted randomness in move selection; ex, during testing we want low randomness, so higher value/weight
 #define GENERATE_WITH_MODEL 1
 #if GENERATE_WITH_MODEL == 0
 #define NUM_SIMULATIONS 2000
@@ -21,9 +21,9 @@
 #else
 #define NUM_SIMULATIONS 800
 #define BACKPROP_DECAY 0.98
-#define MAX_CONCURRENT_GAMES 25
+#define MAX_CONCURRENT_GAMES 4
 #define MC_EXPLORATION_CONST 1
-#define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 10)
+#define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 50)
 #endif
 
 
@@ -997,7 +997,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 				roots[i] = bests[i];
 				if(roots[i]->end){
 					__displayState(roots[i]->state);
-					if(VERBOSE)printf("Game ended at        Idx: %i         Move No: %i           Time: %f \n", i, roots[i]->depth, difftime(time(NULL), startTime));
+					printf("Game ended at        Idx: %i         Move No: %i           Time: %f \n", i, roots[i]->depth, difftime(time(NULL), startTime));
 				}
 			}
 			if(roots[i]->end && games < NUM_GENERATE_GAMES){
@@ -1005,7 +1005,7 @@ static PyObject* generateGames(PyObject *self, PyObject *args){
 				roots[i]->common->gameIndex = __lastGameIndex(roots[i]->common->dataPath) + 1 + idxes;
 				PyCapsule_SetPointer(pyRoots[i], (void*)roots[i]);
 				
-				if(VERBOSE)printf("Start new game number: %i          at Idx: %i \n\n\n", games, i);
+				printf("Start new game number: %i          at Idx: %i \n\n\n", games, i);
 				idxes++;
 				games++;
 			}
