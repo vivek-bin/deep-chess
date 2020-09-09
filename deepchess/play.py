@@ -19,6 +19,8 @@ import copy
 import gc
 import psutil
 import numpy as np
+import json
+import os
 
 moveList = []
 
@@ -36,7 +38,7 @@ def printBoard(state, duration, end):
 	print("total memory used(kB) : ", psutil.virtual_memory().used/1000, "  ,", psutil.virtual_memory().percent, "%")
 	print(CONST.LAPSED_TIME())
 
-def displayTk(state):
+def displayTk(state, actionData=None):
 	root = tk.Tk()
 	root.title("game")
 	root.geometry(str(EG.BOARD_SIZE*CONST.IMAGE_SIZE)+"x"+str(EG.BOARD_SIZE*CONST.IMAGE_SIZE))
@@ -65,7 +67,7 @@ def displayTk(state):
 		promotionImagesTk[player][EG.QUEEN] = ImageTk.PhotoImage(Image.open(CONST.IMAGES + "pro_queen_" + str(player) + ".png"))
 
 
-	def onClick(event, state, moveImgTk, promotionImagesTk):
+	def onClick(event, state, moveImgTk, promotionImagesTk, actionData):
 		canvas = event.widget
 		canvas.delete("move")
 
@@ -82,9 +84,13 @@ def displayTk(state):
 				canvas.create_image(endBox[1]*CONST.IMAGE_SIZE + xOffset, endBox[0]*CONST.IMAGE_SIZE + yOffset, image=promotionImagesTk[state["PLAYER"]][endBox[2]], anchor=tk.NW, tags=("move", moveStr))
 			else:
 				print("too many values in end position!")
-
-	canvas.tag_bind("piece", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk, promotionImagesTk=promotionImagesTk: onClick(event, state, moveImgTk, promotionImagesTk))
-	canvas.tag_bind("board", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk, promotionImagesTk=promotionImagesTk: onClick(event, state, moveImgTk, promotionImagesTk))
+			if actionData:
+				temp = [str(x)[:7] for x in actionData[(startBox, endBox)]]
+				canvas.create_text(endBox[1]*CONST.IMAGE_SIZE, endBox[0]*CONST.IMAGE_SIZE, text=temp[0], anchor=tk.NW, tags=("move", moveStr))
+				canvas.create_text(endBox[1]*CONST.IMAGE_SIZE, endBox[0]*CONST.IMAGE_SIZE+CONST.IMAGE_SIZE, text=temp[1], anchor=tk.SW, tags=("move", moveStr))
+				
+	canvas.tag_bind("piece", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk, promotionImagesTk=promotionImagesTk, actionData=actionData: onClick(event, state, moveImgTk, promotionImagesTk, actionData))
+	canvas.tag_bind("board", "<ButtonPress-1>", lambda event, state=state, moveImgTk=moveImgTk, promotionImagesTk=promotionImagesTk, actionData=actionData: onClick(event, state, moveImgTk, promotionImagesTk, actionData))
 
 	def onClickMove(event, state, root):
 		global moveList
@@ -212,6 +218,33 @@ def generateGames():
 
 	SE.generateGames(state, actions, end, reward, [], predictor, CONST.DATA, True)
 
+def readGameJSON(gameNum, moveNum):
+	allFiles = sorted(os.listdir(CONST.DATA_LOG))
+	fileNames = [CONST.DATA_LOG + fn for fn in allFiles if fn.startswith("game_"+str(gameNum).zfill(5))]
+	
+	try:
+		fileName = fileNames[moveNum]
+	except IndexError:
+		return False
+	with open(fileName) as f:
+		jsonFile = json.load(f)
+	print("\n")
+	for k in ["STATE_VALUE", "VALUE", "EXPLORATORY_VALUE", "END", "REWARD", "GAME_NUMBER", "MOVE_NUMBER"]:
+		print(k, ":", jsonFile[k])
+	
+	state = EG.stateFromIndex(jsonFile["STATE"])
+	actionPolicyData = {EG.actionFromIndex(int(a)): v for a, v in jsonFile["ACTIONS_POLICY"].items()}
+	searchedPolicyData = {EG.actionFromIndex(int(a)): v for a, v in jsonFile["SEARCHED_POLICY"].items()}
+	actionData = {k:(actionPolicyData[k], searchedPolicyData[k]) for k in actionPolicyData.keys()}
+	
+	displayTk(state, actionData)
+
+	return True
+
+def displayGameLasts():
+	allFiles = sorted(os.listdir(CONST.DATA_LOG))
+	endFiles = [f for f, f1 in zip(allFiles, allFiles[1:]+[allFiles[0]]) if f[:len("game_01234")]!=f1[:len("game_01234")]]
+	print("\n".join(endFiles))#[max(gameNum-10, 0):gameNum+10]))
 
 
 if __name__ == "__main__":

@@ -2,7 +2,7 @@ import sys
 import os
 from deepchess import constants as CONST
 
-VALID_FLAGS = ["--train", "--play", "--generate", "--compare", "--iterate"]
+VALID_FLAGS = ["--train", "--play", "--generate", "--compare", "--iterate", "--view"]
 
 def main():
 	flags = sys.argv[1:]
@@ -11,6 +11,7 @@ def main():
 	generateFlag = False
 	compareModelsFlag = False
 	iterationFlag = False
+	viewFlag = False
 
 	try:
 		if flags[0] not in VALID_FLAGS:
@@ -26,6 +27,8 @@ def main():
 			compareModelsFlag = True
 		if "--iterate" == flags[0]:
 			iterationFlag = True
+		if "--view" == flags[0]:
+			viewFlag = True
 		flags.pop(0)
 	except IndexError:
 		playFlag = True
@@ -43,10 +46,10 @@ def main():
 	elif compareModelsFlag:
 		from deepchess.play import compareModels
 
-		rewards = compareModels(firstIdx=-1, secondIdx=0, count=16)
+		rewards = compareModels(firstIdx=-1, secondIdx=-3, count=16)
 		print("latest model as white, results: ", ", ".join(rewards))
 
-		rewards = compareModels(firstIdx=0, secondIdx=-1, count=16)
+		rewards = compareModels(firstIdx=-3, secondIdx=-1, count=16)
 		print("latest model as black, results: ", ", ".join(rewards))
 
 		print(CONST.LAPSED_TIME())
@@ -84,6 +87,18 @@ def main():
 
 		print("\nOne iteration complete.")
 		print(CONST.LAPSED_TIME())
+	elif viewFlag:
+		from deepchess.play import readGameJSON, displayGameLasts
+		gameNum, moveNum = 0, -1
+		if flags:
+			gameNum = int(flags.pop(0))
+		if flags:
+			moveNum = int(flags.pop(0))
+			
+		for mi in range(200):
+			nextMove = readGameJSON(gameNum=gameNum, moveNum=moveNum+mi)
+			if not nextMove:
+				break
 
 
 	return True

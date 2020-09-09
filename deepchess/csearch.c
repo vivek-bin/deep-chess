@@ -10,20 +10,29 @@
 #define STATE_HISTORY_LEN 10
 #define BOARD_HISTORY 4
 #define TRIM_DUPLICATES 1
-#define BEST_CHILD_SCALE 1.0			//weighted randomness in move selection; ex, during testing we want low randomness, so higher value/weight
 #define GENERATE_WITH_MODEL 1
-#if GENERATE_WITH_MODEL == 0
+#define TESTING 1
+#if TESTING == 1
+#define NUM_SIMULATIONS 1200
+#define BACKPROP_DECAY 0.98
+#define MAX_CONCURRENT_GAMES 20
+#define MC_EXPLORATION_CONST 1
+#define NUM_GENERATE_GAMES 0
+#define BEST_CHILD_SCALE 5.0			//weighted randomness in move selection; ex, during testing we want low randomness, so higher value/weight
+#elif GENERATE_WITH_MODEL == 0
 #define NUM_SIMULATIONS 2000
 #define BACKPROP_DECAY 0.99
 #define MAX_CONCURRENT_GAMES 1
 #define MC_EXPLORATION_CONST 0.1
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 400)
+#define BEST_CHILD_SCALE 3.0			//weighted randomness in move selection; ex, during testing we want low randomness, so higher value/weight
 #else
-#define NUM_SIMULATIONS 800
+#define NUM_SIMULATIONS 1000
 #define BACKPROP_DECAY 0.98
 #define MAX_CONCURRENT_GAMES 4
 #define MC_EXPLORATION_CONST 1
 #define NUM_GENERATE_GAMES (MAX_CONCURRENT_GAMES * 50)
+#define BEST_CHILD_SCALE 3.0			//weighted randomness in move selection; ex, during testing we want low randomness, so higher value/weight
 #endif
 
 

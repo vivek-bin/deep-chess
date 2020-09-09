@@ -53,13 +53,14 @@ PROJECT = dirname(dirname(abspath(getsourcefile(lambda:0)))) + "/"
 ###data paths
 MODELS = PATH + "models/"
 DATA = PATH + "data/"
+DATA_LOG = PATH + "data_log/"
 LOGS = PATH + "logs/"
 IMAGES = PROJECT + "deepchess/images/"
 IMAGE_SIZE = 60
 
 ###model parameters
 EMBEDDING_SIZE = 8
-MODEL_DEPTH = 25
+MODEL_DEPTH = 32
 
 L2_REGULARISATION = 1e-4
 CONV_DATA_FORMAT = "channels_last"
@@ -74,7 +75,7 @@ CONV_SIZE = 3
 PREDICTION_BATCH_SIZE = 640
 BATCH_SIZE = 256
 NUM_EPOCHS = 2
-LEARNING_RATE = 5e-4
+LEARNING_RATE = 1e-4
 LEARNING_RATE_DECAY = 0.0
 USE_TENSORBOARD = False
 

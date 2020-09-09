@@ -1,1 +1,17 @@
 - try pytorch
+- low win rate for black maybe due to incorrect handling of exploation; simuls went from 800->1200
+			-1, -3 => 10,8
+			latest model as white, results:  -1, 1, 0, 1, 1, 1, 1, -1, 1, 1, 0, 0, 0, 0, 1, 1
+			white: 9			black:  2			draw: 5
+
+			latest model as black, results:  0, 0, 1, 1, 0, 1, -1, 0, 1, 0, 1, 1, 1, 1, 0, -1
+			white: 8			black:  2			draw: 6
+
+
+			-3, -5 => 8, 6
+			latest model as white, results:  1, -1, 1, 1, -1, -1, 1, 0, 1, 1, 1, 1, 1, -1, 1, 1
+			white: 11		black: 4			draw: 1
+
+			latest model as black, results:  1, -1, 1, 1, 1, -1, 0, 1, -1, 1, -1, -1, 1, 1, 1, 0
+			white: 9			black: 5			draw: 2
+
